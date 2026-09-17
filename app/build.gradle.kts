@@ -7,6 +7,11 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// Present when CI has restored the release key, or when you have copied your own
+// keystore here for a local signed build. Absent in a fresh clone, where the build
+// falls back to the debug key so the APK still installs.
+val releaseKeystore = rootProject.file("release.keystore")
+
 android {
     namespace = "io.snailrun"
     compileSdk = 35
@@ -21,27 +26,13 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    /**
-     * Signing comes from the environment, never from the repository.
-     *
-     * When the four variables are absent — a fresh clone, or a fork without the
-     * secrets — the release build still succeeds and simply produces an unsigned APK.
-     * That keeps the build reproducible for anyone without handing them a key.
-     */
-    val keystorePath = System.getenv("SNAIL_KEYSTORE_PATH")
-    val keystorePassword = System.getenv("SNAIL_KEYSTORE_PASSWORD")
-    val keyAlias = System.getenv("SNAIL_KEY_ALIAS")
-    val keyPassword = System.getenv("SNAIL_KEY_PASSWORD")
-    val canSign = !keystorePath.isNullOrBlank() && !keystorePassword.isNullOrBlank() &&
-        !keyAlias.isNullOrBlank() && !keyPassword.isNullOrBlank()
-
-    if (canSign) {
-        signingConfigs {
+    signingConfigs {
+        if (releaseKeystore.exists()) {
             create("release") {
-                storeFile = file(keystorePath!!)
-                storePassword = keystorePassword
-                this.keyAlias = keyAlias
-                this.keyPassword = keyPassword
+                storeFile = releaseKeystore
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
             }
         }
     }
@@ -51,7 +42,11 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            if (canSign) signingConfig = signingConfigs.getByName("release")
+            // An unsigned APK cannot be installed at all, so a build without the real
+            // key is debug-signed rather than left unsigned. The debug key differs per
+            // machine, so moving to the real key later needs one uninstall.
+            signingConfig =
+                signingConfigs.getByName(if (releaseKeystore.exists()) "release" else "debug")
         }
     }
 

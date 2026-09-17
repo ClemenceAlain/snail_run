@@ -16,8 +16,6 @@ jobs:
   release:
     name: Build and publish APK
     runs-on: ubuntu-latest
-    env:
-      KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
     steps:
       - uses: actions/checkout@v4
 
@@ -52,21 +50,28 @@ jobs:
       - name: Lint
         run: ./gradlew :app:lintDebug
 
-      # Without the signing secrets this still runs and produces an unsigned APK, so a
-      # fork can build the project without being handed a key.
-      - name: Decode keystore
+      # Tested in the shell rather than in `if:` — a step's own `env` block is not
+      # visible to its own condition, so `if: env.KEYSTORE_BASE64 != ''` would never
+      # fire and every release would be silently debug-signed.
+      - name: Restore the signing key, if one is configured
         id: keystore
-        if: env.KEYSTORE_BASE64 != ''
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
-          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
-          echo "path=$RUNNER_TEMP/release.jks" >> "$GITHUB_OUTPUT"
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
+            echo "signed=release key" >> "$GITHUB_OUTPUT"
+            echo "signing with the configured release key"
+          else
+            echo "signed=debug key" >> "$GITHUB_OUTPUT"
+            echo "no KEYSTORE_BASE64 secret; the APK will be debug-signed"
+          fi
 
       - name: Assemble release
         env:
-          SNAIL_KEYSTORE_PATH: ${{ steps.keystore.outputs.path }}
-          SNAIL_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          SNAIL_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          SNAIL_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           ./gradlew :app:assembleRelease \
             -PversionName=${{ steps.version.outputs.name }} \
@@ -79,12 +84,14 @@ jobs:
           TARGET="snail-run-${{ steps.version.outputs.name }}.apk"
           cp "$SOURCE" "$TARGET"
           echo "path=$TARGET" >> "$GITHUB_OUTPUT"
-          if [ -z "${{ steps.keystore.outputs.path }}" ]; then
-            echo "signed=no" >> "$GITHUB_OUTPUT"
-          else
-            echo "signed=yes" >> "$GITHUB_OUTPUT"
-          fi
           ls -la "$TARGET"
+
+      # An APK that cannot be installed is not a release; fail loudly rather than
+      # publishing one.
+      - name: Verify the APK is signed
+        run: |
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -r | head -n 1)
+          "$APKSIGNER" verify --print-certs "${{ steps.apk.outputs.path }}"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -102,6 +109,6 @@ jobs:
           body: |
             Install by copying the APK to the phone and opening it.
 
-            Signed: ${{ steps.apk.outputs.signed }}. An unsigned APK will not install —
-            if this says `no`, the repository is missing its signing secrets; see
-            `tools/setup-signing.sh`.
+            Signed with the ${{ steps.keystore.outputs.signed }}. A debug-signed build
+            installs fine, but it cannot be replaced in place by a later release-signed
+            one — that switch needs a single uninstall. See `tools/setup-signing.sh`.

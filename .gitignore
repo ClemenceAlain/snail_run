@@ -8,3 +8,8 @@ captures/
 .externalNativeBuild
 .cxx
 *.apk
+
+# Signing keys never belong in the repository.
+release.keystore
+*.jks
+*.keystore

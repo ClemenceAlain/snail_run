@@ -50,4 +50,10 @@ printf '%s' "$STORE_PASSWORD" | gh secret set KEY_PASSWORD
 
 echo
 echo "Done. Cut a release with:"
-echo "    git tag v0.1.0 && git push origin v0.1.0"
+echo "    git tag v0.2.0 && git push origin v0.2.0"
+echo
+echo "For a signed build on this machine, copy the keystore into the repository root:"
+echo "    cp '$KEYSTORE' release.keystore   # gitignored"
+echo
+echo "The first release-signed build cannot install over a debug-signed one."
+echo "Uninstall snail run on the phone once, then install the new APK."

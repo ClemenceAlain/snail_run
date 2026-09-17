@@ -98,9 +98,17 @@ with it. Set the key up once:
 ```
 
 That creates a keystore under `~/.snail-run/`, uploads it to the repository as
-secrets, and leaves the file on your machine. **Back the keystore up.** Nothing
-secret is committed, and a clone without the secrets still builds — it just produces
-an unsigned APK.
+secrets, and leaves the file on your machine. **Back the keystore up.** Nothing secret
+is committed.
+
+A build without those secrets is **debug-signed** rather than left unsigned, so a
+fork, or this repository before signing is set up, still produces an APK that
+installs. The debug key differs per machine, so the first release-signed build cannot
+replace a debug-signed one in place: uninstall the app once at that point.
+
+For a signed build locally, copy the keystore to `release.keystore` in the repository
+root — it is gitignored — and pass the passwords through `KEYSTORE_PASSWORD`,
+`KEY_ALIAS` and `KEY_PASSWORD`.
 
 ## Licences
 
