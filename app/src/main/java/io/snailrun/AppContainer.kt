@@ -1,0 +1,53 @@
+package io.snailrun
+
+import android.content.Context
+import io.snailrun.data.db.SnailDatabase
+import io.snailrun.data.location.LocationSource
+import io.snailrun.data.location.PlatformLocationSource
+import io.snailrun.data.prefs.SettingsRepository
+import io.snailrun.data.repo.RunRepository
+import io.snailrun.data.voice.AndroidVoiceAnnouncer
+import io.snailrun.data.voice.ResourceSpeechVocabulary
+import io.snailrun.data.voice.VoiceAnnouncer
+import io.snailrun.domain.voice.PaceSpeechFormatter
+import io.snailrun.tracking.RunRecorder
+import java.time.Clock
+
+/**
+ * Hand-rolled dependency graph. One developer and one graph, so Hilt's annotation
+ * processing would cost more build time than the wiring it saves.
+ *
+ * Everything here is lazy: the database and the speech engine are not touched until
+ * something asks for them.
+ */
+class AppContainer(private val context: Context) {
+
+    val clock: Clock = Clock.systemDefaultZone()
+
+    private val database: SnailDatabase by lazy { SnailDatabase.build(context) }
+
+    val settings: SettingsRepository by lazy { SettingsRepository(context) }
+
+    val runRepository: RunRepository by lazy { RunRepository(database.runDao(), clock) }
+
+    val locationSource: LocationSource by lazy { PlatformLocationSource(context) }
+
+    val voiceAnnouncer: VoiceAnnouncer by lazy {
+        AndroidVoiceAnnouncer(
+            context = context,
+            formatter = PaceSpeechFormatter(ResourceSpeechVocabulary(context)),
+        )
+    }
+
+    val gpxExporter: io.snailrun.data.export.GpxExporter by lazy {
+        io.snailrun.data.export.GpxExporter(context, runRepository, settings)
+    }
+
+    val runRecorder: RunRecorder by lazy {
+        RunRecorder(
+            repository = runRepository,
+            settings = settings,
+            clock = clock,
+        )
+    }
+}
