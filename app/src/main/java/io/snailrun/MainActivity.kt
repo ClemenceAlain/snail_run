@@ -37,6 +37,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import io.snailrun.data.backup.BackupResult
+import io.snailrun.data.backup.DatabaseBackup
+import io.snailrun.data.backup.RestoreResult
 import io.snailrun.data.export.GpxExporter
 import io.snailrun.data.voice.TtsState
 import io.snailrun.data.prefs.Settings as AppSettings
@@ -59,6 +62,11 @@ import io.snailrun.ui.record.RecordViewModel
 import io.snailrun.ui.settings.SettingsActions
 import io.snailrun.ui.settings.SettingsScreen
 import io.snailrun.ui.theme.SnailRunTheme
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+import kotlin.system.exitProcess
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -322,6 +330,42 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        var backupStatus by remember { mutableStateOf<String?>(null) }
+
+        // The file the user picked, held while the confirmation dialog is up. Nothing is
+        // read from it until they say yes.
+        var pendingRestore by remember { mutableStateOf<Uri?>(null) }
+
+        // Set only once the live database has been closed. From that point this screen is
+        // reading from a handle that no longer exists, so the dialog offers no way out
+        // but the restart.
+        var restartPrompt by remember { mutableStateOf<String?>(null) }
+
+        val backupPicker = rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument(DatabaseBackup.MIME_TYPE),
+        ) { uri ->
+            if (uri != null) {
+                scope.launch {
+                    backupStatus = "Writing the backup…"
+                    backupStatus = when (val result = container.databaseBackup.backupTo(uri)) {
+                        is BackupResult.Written ->
+                            "Backed up ${runsLabel(result.runCount)}, " +
+                                "${result.sizeBytes / 1_000} kB. Keep the file somewhere " +
+                                "other than this phone."
+
+                        is BackupResult.Failed ->
+                            "Could not write the backup: ${reason(result.error)}"
+                    }
+                }
+            }
+        }
+
+        // Any type, for the same reason as the map file: a `.db` has no registered MIME
+        // type, and pickers on de-Googled builds hide anything they cannot name.
+        val restorePicker = rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenDocument(),
+        ) { uri -> if (uri != null) pendingRestore = uri }
+
         val actions = remember {
             SettingsActions(
                 onVoiceEnabled = { scope.launch { container.settings.setVoiceEnabled(it) } },
@@ -350,6 +394,8 @@ class MainActivity : ComponentActivity() {
                 onRemoveBasemap = { scope.launch { container.basemapStore.remove() } },
                 onDemoEnabled = { scope.launch { container.settings.setDemoEnabled(it) } },
                 onDemoSpeedFactor = { scope.launch { container.settings.setDemoSpeedFactor(it) } },
+                onBackup = { backupPicker.launch(DatabaseBackup.suggestedFileName(nowStamp())) },
+                onRestore = { restorePicker.launch(arrayOf("*/*")) },
             )
         }
 
@@ -359,8 +405,105 @@ class MainActivity : ComponentActivity() {
             actions = actions,
             modifier = Modifier,
             basemapStatus = basemapStatus,
+            backupStatus = backupStatus,
         )
+
+        pendingRestore?.let { uri ->
+            AlertDialog(
+                onDismissRequest = { pendingRestore = null },
+                title = { Text("Replace every run?") },
+                text = {
+                    Text(
+                        "Every run on this phone is replaced by the ones in that file. " +
+                            "Anything recorded since the backup was taken is lost. " +
+                            "Settings and the map file are not touched, and snail run " +
+                            "reopens itself once the runs are back.",
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            pendingRestore = null
+                            scope.launch {
+                                backupStatus = "Restoring…"
+                                when (val result = container.databaseBackup.restoreFrom(uri)) {
+                                    is RestoreResult.Restored -> restartPrompt =
+                                        "Restored ${runsLabel(result.runCount)}. snail run " +
+                                            "has to reopen before it can show them."
+
+                                    RestoreResult.NotABackupFile -> backupStatus =
+                                        "That file is not a snail run backup. Nothing was " +
+                                            "changed."
+
+                                    is RestoreResult.FromNewerVersion -> backupStatus =
+                                        "That backup came from a newer snail run " +
+                                            "(it needs version ${result.found}; this build " +
+                                            "reads ${result.supported}). Update the app " +
+                                            "first. Nothing was changed."
+
+                                    RestoreResult.RunInProgress -> backupStatus =
+                                        "Finish your run first. It is not in the backup, " +
+                                            "so restoring now would throw it away."
+
+                                    is RestoreResult.Failed ->
+                                        if (result.restartNeeded) {
+                                            restartPrompt =
+                                                "The restore failed and your previous runs " +
+                                                    "were put back: ${reason(result.error)}. " +
+                                                    "snail run has to reopen."
+                                        } else {
+                                            backupStatus =
+                                                "Could not read that file: " +
+                                                    "${reason(result.error)}. Nothing was " +
+                                                    "changed."
+                                        }
+                                }
+                            }
+                        },
+                    ) {
+                        Text("Replace")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingRestore = null }) { Text("Cancel") }
+                },
+            )
+        }
+
+        restartPrompt?.let { message ->
+            AlertDialog(
+                // Not dismissible: the database behind this screen is already closed.
+                onDismissRequest = {},
+                title = { Text("Reopening snail run") },
+                text = { Text(message) },
+                confirmButton = {
+                    TextButton(onClick = { restartApp() }) { Text("Reopen") }
+                },
+            )
+        }
     }
+
+    /**
+     * Restores swap the database file out from under a graph that is captured by the
+     * recorder, the exporter and three view models. Making every one of those swappable
+     * is a large change for something run perhaps once a year; relaunching into a clean
+     * process is the honest alternative, and the dialog says so before anything happens.
+     */
+    private fun restartApp() {
+        startActivity(
+            Intent(this, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        )
+        finish()
+        exitProcess(0)
+    }
+
+    private fun runsLabel(count: Int) = if (count == 1) "1 run" else "$count runs"
+
+    private fun reason(error: Throwable) = error.message ?: error::class.java.simpleName
+
+    private fun nowStamp(): String =
+        BACKUP_STAMP.format(Instant.now().atZone(ZoneId.systemDefault()))
 
     private fun hasFineLocation(): Boolean =
         PermissionChecker.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
@@ -382,6 +525,10 @@ class MainActivity : ComponentActivity() {
         val intent = Intent("com.android.settings.TTS_SETTINGS")
         runCatching { startActivity(intent) }
             .onFailure { startActivity(Intent(Settings.ACTION_SETTINGS)) }
+    }
+
+    private companion object {
+        val BACKUP_STAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd-HHmm", Locale.ROOT)
     }
 
     @Suppress("unused")

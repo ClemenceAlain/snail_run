@@ -18,6 +18,7 @@ network socket. Nothing it records can leave the device.
   trace, its pace-and-elevation graph and any records. Drag across the graph for the
   average over any stretch.
 - Draws the trace on an offline map, if you put one on the phone.
+- Backs every run up to one file you choose, and puts one back.
 - Survives being killed mid-run: the track is in the database, and the app offers to
   finish or continue it on next launch.
 
@@ -40,6 +41,40 @@ it runs, and excluded from personal records. Delete it from its own screen when 
 
 The generator lives in `domain/demo/DemoRoute.kt` and is pure, so the trace the phone
 replays is the one the tests assert on.
+
+## Your runs are only here
+
+Every run lives in one place: the app's private database on the phone. `allowBackup` is
+off and the data extraction rules exclude everything, so Android's own cloud backup and
+device transfer skip it too. That is deliberate — nothing this app records goes anywhere
+the user did not send it. It also means an uninstall, a factory reset or a lost phone
+takes every run with it.
+
+So Settings → **Your runs** has **Back up** and **Restore**.
+
+A backup is the database itself, written with SQLite's `VACUUM INTO` so it is one
+consistent, compacted file rather than a copy that might be torn mid-write or miss
+everything still sitting in the write-ahead log. It is stamped with an `application_id`
+of `SNLR`, which is how a restore tells it apart from any other SQLite file the picker
+will happily hand over.
+
+Restoring validates before it touches anything: the stamp, the table set, and the schema
+version. A backup from an older version is fine — Room migrates it on open. One from a
+newer version is refused outright, because an older app cannot know what a later one
+added. A copy of the current database is taken first, so a restore that fails halfway
+puts the old runs back rather than leaving you with neither set. It is refused outright
+while a run is being recorded: that run is not in the backup, and restoring would throw
+it away.
+
+The app then restarts itself. The database instance is captured by the recorder, the
+exporter and three view models; relaunching into a clean process is a far smaller thing
+than making all of that swappable for an operation run perhaps once a year.
+
+**Not in the backup:** settings, and the map file. Android ties the GPX export folder
+grant and the picked map file to the installation, so neither would survive a reinstall
+even if the backup carried them — and the map file is hundreds of megabytes you still
+have the original of. A GPX export is not a restore path either: it is a copy for other
+programs, and nothing reads it back.
 
 ## The map
 
@@ -199,6 +234,9 @@ A build without those secrets is **debug-signed** rather than left unsigned, so 
 fork, or this repository before signing is set up, still produces an APK that
 installs. The debug key differs per machine, so the first release-signed build cannot
 replace a debug-signed one in place: uninstall the app once at that point.
+
+**Back your runs up before that uninstall.** Settings → Your runs → Back up, to a file
+somewhere other than the phone, then uninstall, install the signed APK, and restore.
 
 For a signed build locally, copy the keystore to `release.keystore` in the repository
 root — it is gitignored — and pass the passwords through `KEYSTORE_PASSWORD`,

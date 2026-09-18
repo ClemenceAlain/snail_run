@@ -17,6 +17,7 @@ import androidx.core.app.ServiceCompat
 import io.snailrun.MainActivity
 import io.snailrun.R
 import io.snailrun.SnailRunApp
+import io.snailrun.data.export.ExportResult
 import io.snailrun.data.prefs.DemoSettings
 import io.snailrun.data.repo.SOURCE_DEMO
 import io.snailrun.data.repo.SOURCE_RECORDED
@@ -129,10 +130,49 @@ class RunRecordingService : Service() {
             // splits derived before the GPX is generated, and only the service knows
             // when that has happened.
             if (runId != null && container.settings.settings.first().autoExportEnabled) {
-                container.gpxExporter.exportToChosenFolder(runId)
+                exportProblem(container.gpxExporter.exportToChosenFolder(runId))
+                    ?.let(::notifyExportProblem)
             }
             stopSelf()
         }
+    }
+
+    /**
+     * What to tell the user, or null when the file was written.
+     *
+     * A silent background write that fails silently is how a user finds out months later
+     * that half their runs were never exported. The service has no UI and is about to
+     * stop, so a notification is the only honest channel left.
+     */
+    private fun exportProblem(result: ExportResult): String? = when (result) {
+        is ExportResult.Written -> null
+        ExportResult.NoFolderChosen -> getString(R.string.notification_export_no_folder)
+        is ExportResult.FolderUnavailable -> getString(R.string.notification_export_folder_gone)
+        is ExportResult.Failed -> getString(
+            R.string.notification_export_error,
+            result.error.message ?: result.error::class.java.simpleName,
+        )
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun notifyExportProblem(text: String) {
+        val openApp = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(getString(R.string.notification_export_failed_title))
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(openApp)
+            .setAutoCancel(true)
+            .build()
+        // Its own id. `stopSelf()` tears the foreground notification down a moment from
+        // now, and reusing id 1 would take this warning with it.
+        notificationManager().notify(EXPORT_NOTIFICATION_ID, notification)
     }
 
     private fun summary(state: RecordingState.Active): String {
@@ -202,6 +242,7 @@ class RunRecordingService : Service() {
     companion object {
         private const val CHANNEL_ID = "recording"
         private const val NOTIFICATION_ID = 1
+        private const val EXPORT_NOTIFICATION_ID = 2
         private const val WAKE_LOCK_TAG = "snail_run:recording"
         private const val WAKE_LOCK_TIMEOUT_MS = 12L * 60 * 60 * 1000
 

@@ -14,7 +14,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SplitEntity::class,
         BestEffortEntity::class,
     ],
-    version = 2,
+    version = SnailDatabase.SCHEMA_VERSION,
     exportSchema = true,
 )
 abstract class SnailDatabase : RoomDatabase() {
@@ -22,6 +22,16 @@ abstract class SnailDatabase : RoomDatabase() {
     abstract fun runDao(): RunDao
 
     companion object {
+        /**
+         * The one place the schema version is written. The annotation above reads it, and
+         * so does the backup check that refuses a file from a newer build — a constant
+         * that drifted from the annotation would let that check pass on a file this
+         * build cannot read.
+         */
+        const val SCHEMA_VERSION = 2
+
+        const val FILE_NAME = "snail-run.db"
+
         /**
          * Runs recorded before the position filter existed are stamped version 0, which
          * is what makes them get re-derived on next launch instead of keeping figures
@@ -36,7 +46,7 @@ abstract class SnailDatabase : RoomDatabase() {
         }
 
         fun build(context: Context): SnailDatabase =
-            Room.databaseBuilder(context, SnailDatabase::class.java, "snail-run.db")
+            Room.databaseBuilder(context, SnailDatabase::class.java, FILE_NAME)
                 // Concurrent reads during a run's 10-second insert flushes.
                 .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
                 .addMigrations(MIGRATION_1_2)

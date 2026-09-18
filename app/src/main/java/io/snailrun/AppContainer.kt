@@ -1,6 +1,7 @@
 package io.snailrun
 
 import android.content.Context
+import io.snailrun.data.backup.DatabaseBackup
 import io.snailrun.data.basemap.BasemapStore
 import io.snailrun.data.db.SnailDatabase
 import io.snailrun.data.location.DemoLocationSource
@@ -13,6 +14,7 @@ import io.snailrun.data.voice.AndroidVoiceAnnouncer
 import io.snailrun.data.voice.ResourceSpeechVocabulary
 import io.snailrun.data.voice.VoiceAnnouncer
 import io.snailrun.domain.voice.PaceSpeechFormatter
+import io.snailrun.tracking.RecordingState
 import io.snailrun.tracking.RunRecorder
 import java.time.Clock
 
@@ -55,6 +57,18 @@ class AppContainer(private val context: Context) {
         }
 
     val basemapStore: BasemapStore by lazy { BasemapStore(context, settings) }
+
+    /**
+     * The database is handed over as a lambda rather than as a value: a restore closes it
+     * and replaces the file underneath, so nothing may hold the instance across that.
+     */
+    val databaseBackup: DatabaseBackup by lazy {
+        DatabaseBackup(
+            context = context,
+            database = { database },
+            isRecording = { runRecorder.state.value is RecordingState.Active },
+        )
+    }
 
     val voiceAnnouncer: VoiceAnnouncer by lazy {
         AndroidVoiceAnnouncer(

@@ -9,6 +9,16 @@
     <string name="notification_starting">Waiting for GPS…</string>
     <string name="notification_progress">%1$s km · %2$s · %3$s /km</string>
 
+    <!--
+      Shown when a finished run could not be written as a GPX file. Every one of these
+      leads with the run being safe, because it is: the GPX is a copy for elsewhere, and
+      the run itself is already in the database.
+    -->
+    <string name="notification_export_failed_title">Run saved, GPX not written</string>
+    <string name="notification_export_no_folder">Your run is safe. Choose a folder in Settings to also save runs as GPX files.</string>
+    <string name="notification_export_folder_gone">Your run is safe, but the folder you chose for GPX files is gone. Pick one again in Settings.</string>
+    <string name="notification_export_error">Your run is safe, but the GPX file could not be written: %1$s</string>
+
     <!-- Spoken announcements. Digits are fine; a colon is not. -->
     <plurals name="speech_kilometres">
         <item quantity="one">%1$s kilometre</item>

@@ -44,6 +44,8 @@ data class SettingsActions(
     val onRemoveBasemap: () -> Unit,
     val onDemoEnabled: (Boolean) -> Unit,
     val onDemoSpeedFactor: (Int) -> Unit,
+    val onBackup: () -> Unit,
+    val onRestore: () -> Unit,
 )
 
 @Composable
@@ -53,6 +55,7 @@ fun SettingsScreen(
     actions: SettingsActions,
     modifier: Modifier = Modifier,
     basemapStatus: String = "No map file yet.",
+    backupStatus: String? = null,
 ) {
     Column(
         modifier = modifier
@@ -240,6 +243,43 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+        }
+
+        Spacer(Modifier.height(Spacing.section))
+        SectionTitle("Your runs")
+
+        SnailCard(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = "Your runs live on this phone and nowhere else. An uninstall, a " +
+                    "factory reset or a lost phone takes them with it. A backup is one " +
+                    "file holding every run, every track and every record — put it " +
+                    "somewhere off the phone and it is the only copy that survives.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(Spacing.s))
+            Text(
+                text = "Settings are not in it, and neither is the map file. Android " +
+                    "ties the GPX folder and the map file to this installation, so " +
+                    "neither could be restored anyway; you still have the map file you " +
+                    "picked, and the settings take a minute.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            if (backupStatus != null) {
+                Spacer(Modifier.height(Spacing.s))
+                Text(
+                    text = backupStatus,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                TextButton(onClick = actions.onBackup) { Text("Back up") }
+                TextButton(onClick = actions.onRestore) { Text("Restore") }
             }
         }
 
