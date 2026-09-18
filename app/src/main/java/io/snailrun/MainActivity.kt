@@ -44,6 +44,7 @@ import io.snailrun.ui.detail.RunDetailScreen
 import io.snailrun.ui.detail.RunDetailTopBar
 import io.snailrun.ui.detail.RunDetailViewModel
 import io.snailrun.ui.history.HistoryScreen
+import io.snailrun.ui.history.HistoryViewModel
 import io.snailrun.ui.nav.ROUTE_RUN_DETAIL
 import io.snailrun.ui.nav.SnailRunScaffold
 import io.snailrun.ui.nav.TopLevel
@@ -76,10 +77,7 @@ class MainActivity : ComponentActivity() {
                             RecordRoute()
                         }
                         composable(TopLevel.History.route) {
-                            val runs by container.runRepository.observeHistory()
-                                .collectAsStateWithLifecycle(emptyList())
-                            HistoryScreen(
-                                runs = runs,
+                            HistoryRoute(
                                 onOpenRun = { navController.navigate(runDetailRoute(it)) },
                             )
                         }
@@ -172,6 +170,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+
+    @Composable
+    private fun HistoryRoute(onOpenRun: (Long) -> Unit) {
+        val viewModel: HistoryViewModel = viewModel(factory = HistoryViewModel.Factory(container))
+        val ui by viewModel.ui.collectAsStateWithLifecycle()
+
+        HistoryScreen(
+            state = ui,
+            onOpenRun = onOpenRun,
+            onSetMode = viewModel::setMode,
+            onSelectDate = viewModel::selectDate,
+            onShowMonth = viewModel::showMonth,
+        )
+    }
 
     @Composable
     private fun RunDetailRoute(runId: Long, onBack: () -> Unit) {

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,6 +27,7 @@ import io.snailrun.ui.format.RunFormat
 import io.snailrun.ui.theme.SnailType
 import io.snailrun.ui.theme.Spacing
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -39,14 +41,19 @@ private fun timeformat() = DateTimeFormatter.ofPattern("HH:mm", Locale.getDefaul
 
 @Composable
 fun HistoryScreen(
-    runs: List<RunEntity>,
+    state: HistoryUiState,
     onOpenRun: (Long) -> Unit,
+    onSetMode: (HistoryMode) -> Unit,
+    onSelectDate: (LocalDate) -> Unit,
+    onShowMonth: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (runs.isEmpty()) {
+    if (state.runs.isEmpty()) {
         EmptyHistory(modifier)
         return
     }
+
+    val runs = if (state.mode == HistoryMode.List) state.runs else state.visibleRuns
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -64,9 +71,48 @@ fun HistoryScreen(
                 style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.padding(bottom = Spacing.s),
             )
+            ModeToggle(mode = state.mode, onSetMode = onSetMode)
         }
+
+        if (state.mode == HistoryMode.Calendar && state.month != null) {
+            item {
+                CalendarView(
+                    month = state.month,
+                    selectedDate = state.selectedDate,
+                    today = LocalDate.now(),
+                    onSelectDate = { date -> date?.let(onSelectDate) },
+                    onShowMonth = onShowMonth,
+                )
+            }
+            item {
+                Text(
+                    text = when {
+                        state.selectedDate != null -> "That day"
+                        runs.isEmpty() -> "Nothing this month"
+                        else -> "This month"
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(top = Spacing.s),
+                )
+            }
+        }
+
         items(runs, key = { it.id }) { run ->
             RunRow(run = run, onClick = { onOpenRun(run.id) })
+        }
+    }
+}
+
+/** Two words, not icons: the difference between a list and a calendar is worth saying. */
+@Composable
+private fun ModeToggle(mode: HistoryMode, onSetMode: (HistoryMode) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+        HistoryMode.entries.forEach { option ->
+            FilterChip(
+                selected = mode == option,
+                onClick = { onSetMode(option) },
+                label = { Text(option.name) },
+            )
         }
     }
 }
