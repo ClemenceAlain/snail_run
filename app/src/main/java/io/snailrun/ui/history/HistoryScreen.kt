@@ -59,8 +59,8 @@ fun HistoryScreen(
         HistoryMode.List -> state.runs
         HistoryMode.Calendar -> state.visibleRuns
         // The chart is the answer in progress mode; a list under it would only repeat
-        // the bars in words.
-        HistoryMode.Progress -> emptyList()
+        // the bars in words. Records are their own list, of distances rather than runs.
+        HistoryMode.Progress, HistoryMode.Records -> emptyList()
     }
 
     LazyColumn(
@@ -115,6 +115,23 @@ fun HistoryScreen(
             }
         }
 
+        if (state.mode == HistoryMode.Records) {
+            item {
+                Text(
+                    text = "Your fastest time over each distance, across every run.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = Spacing.xs),
+                )
+            }
+            items(state.records, key = { it.distanceMeters }) { record ->
+                RecordRow(
+                    record = record,
+                    onClick = record.record?.let { held -> { onOpenRun(held.runId) } },
+                )
+            }
+        }
+
         items(runs, key = { it.id }) { run ->
             RunRow(run = run, onClick = { onOpenRun(run.id) })
         }
@@ -133,6 +150,74 @@ private fun ModeToggle(mode: HistoryMode, onSetMode: (HistoryMode) -> Unit) {
             )
         }
     }
+}
+
+/**
+ * One distance and the best it has ever been run.
+ *
+ * Distances nobody has covered yet are still shown, greyed. A record list that simply
+ * stopped at 10 km would read as the app having no opinion about a half marathon,
+ * rather than as a half marathon not having been run.
+ */
+@Composable
+private fun RecordRow(record: DistanceRecord, onClick: (() -> Unit)?) {
+    SnailCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+        containerColor = if (record.record != null) {
+            MaterialTheme.colorScheme.secondaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerLow
+        },
+    ) {
+        val held = record.record
+        val content = if (held != null) {
+            MaterialTheme.colorScheme.onSecondaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column {
+                Text(
+                    text = distanceLabel(record.distanceMeters),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = content,
+                )
+                Text(
+                    text = held?.let { effort ->
+                        val zone = ZoneId.systemDefault()
+                        val on = dayformat().format(Instant.ofEpochMilli(effort.startedAtEpochMs).atZone(zone))
+                        "$on · ${RunFormat.pace(paceOf(record.distanceMeters, effort.durationMs))}/km"
+                    } ?: "Not run yet",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = content,
+                )
+            }
+            Text(
+                text = held?.let { RunFormat.duration(it.durationMs) } ?: "—",
+                style = SnailType.metricSmall,
+                color = content,
+            )
+        }
+    }
+}
+
+/** Seconds per kilometre for a record, which stores only the distance and the time. */
+private fun paceOf(distanceMeters: Int, durationMs: Long): Double? {
+    if (distanceMeters <= 0 || durationMs <= 0L) return null
+    return durationMs / 1000.0 / (distanceMeters / 1000.0)
+}
+
+private fun distanceLabel(distanceMeters: Int): String = when (distanceMeters) {
+    21_097 -> "Half marathon"
+    42_195 -> "Marathon"
+    else -> "${distanceMeters / 1000} km"
 }
 
 @Composable

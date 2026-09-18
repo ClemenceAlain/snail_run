@@ -18,6 +18,10 @@ private object EnglishVocabulary : SpeechVocabulary {
     override val averagePaceLabel = "average pace"
     override val lastSplitLabel = "last kilometre"
     override val perKilometre = "per kilometre"
+    override fun notice(notice: RunNotice) = when (notice) {
+        RunNotice.AutoPaused -> "paused"
+        RunNotice.AutoResumed -> "running again"
+    }
 }
 
 class PaceSpeechFormatterTest {

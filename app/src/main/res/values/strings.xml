@@ -40,4 +40,8 @@
     <string name="speech_average_pace">average pace</string>
     <string name="speech_last_split">last kilometre</string>
     <string name="speech_per_kilometre">per kilometre</string>
+    <!-- Said when the app stops or starts the clock on the runner's behalf. Short: it
+         interrupts nothing, and the runner is standing at a light wanting one word. -->
+    <string name="speech_auto_paused">paused</string>
+    <string name="speech_auto_resumed">running again</string>
 </resources>

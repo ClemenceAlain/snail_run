@@ -55,14 +55,25 @@ class RunDetailViewModel(
 
     /** Drag on the graph: what did this stretch of the run actually average? */
     fun select(fromM: Double, toM: Double) {
+        val selection = TrackProfile.selection(points, fromM, toM)
         _state.value = _state.value.copy(
-            selection = TrackProfile.selection(points, fromM, toM),
+            selection = selection,
+            selectedSegments = selection?.let { segmentsBetween(it.fromM, it.toM) }.orEmpty(),
         )
     }
 
     fun clearSelection() {
-        _state.value = _state.value.copy(selection = null)
+        _state.value = _state.value.copy(selection = null, selectedSegments = emptyList())
     }
+
+    /**
+     * The stretch of track between two distances, still split at its pauses.
+     *
+     * Cut by cumulative distance rather than by index, because that is the axis the
+     * graph is drawn against — the reader dragged out a distance, not a range of fixes.
+     */
+    private fun segmentsBetween(fromM: Double, toM: Double): List<List<LatLon>> =
+        points.filter { it.cumulativeDistanceM in fromM..toM }.toSegments()
 
     /** Only the distances where this run is the fastest one recorded are celebrated. */
     private suspend fun recordsHeldBy(runId: Long): List<Pair<Int, Long>> =

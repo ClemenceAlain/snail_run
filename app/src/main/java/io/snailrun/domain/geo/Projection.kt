@@ -17,8 +17,24 @@ data class Point2D(val x: Float, val y: Float)
  */
 object Projection {
 
-    fun fit(points: List<LatLon>, width: Float, height: Float, padding: Float): List<Point2D> {
-        if (points.isEmpty()) return emptyList()
+    fun fit(points: List<LatLon>, width: Float, height: Float, padding: Float): List<Point2D> =
+        fitting(points, width, height, padding).let { project -> points.map(project) }
+
+    /**
+     * The transform [fit] applies, handed back rather than used.
+     *
+     * A selected stretch of a run has to land on the same pixels as the run it was cut
+     * from. Fitting it separately would scale that stretch to fill the whole canvas —
+     * drawing a highlight that agrees with nothing beneath it. So the frame is computed
+     * from one set of points and applied to any.
+     */
+    fun fitting(
+        points: List<LatLon>,
+        width: Float,
+        height: Float,
+        padding: Float,
+    ): (LatLon) -> Point2D {
+        if (points.isEmpty()) return { Point2D(0f, 0f) }
 
         val latMid = (points.minOf { it.lat } + points.maxOf { it.lat }) / 2.0
         val k = cos(Math.toRadians(latMid))
@@ -38,6 +54,11 @@ object Projection {
         val offsetX = (width - spanX * scale) / 2f - xMin * scale
         val offsetY = (height - spanY * scale) / 2f - yMin * scale
 
-        return xs.indices.map { Point2D(xs[it] * scale + offsetX, ys[it] * scale + offsetY) }
+        return { point ->
+            Point2D(
+                (point.lon * k).toFloat() * scale + offsetX,
+                (-point.lat).toFloat() * scale + offsetY,
+            )
+        }
     }
 }

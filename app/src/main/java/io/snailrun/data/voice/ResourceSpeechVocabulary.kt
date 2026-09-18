@@ -2,6 +2,7 @@ package io.snailrun.data.voice
 
 import android.content.Context
 import io.snailrun.R
+import io.snailrun.domain.voice.RunNotice
 import io.snailrun.domain.voice.SpeechVocabulary
 import java.util.Locale
 
@@ -36,4 +37,11 @@ class ResourceSpeechVocabulary(private val context: Context) : SpeechVocabulary 
     override val averagePaceLabel: String get() = context.getString(R.string.speech_average_pace)
     override val lastSplitLabel: String get() = context.getString(R.string.speech_last_split)
     override val perKilometre: String get() = context.getString(R.string.speech_per_kilometre)
+
+    override fun notice(notice: RunNotice): String = context.getString(
+        when (notice) {
+            RunNotice.AutoPaused -> R.string.speech_auto_paused
+            RunNotice.AutoResumed -> R.string.speech_auto_resumed
+        }
+    )
 }

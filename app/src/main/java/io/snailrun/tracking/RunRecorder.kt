@@ -16,6 +16,7 @@ import io.snailrun.domain.model.Split
 import io.snailrun.domain.model.TrackPoint
 import io.snailrun.domain.voice.Announcement
 import io.snailrun.domain.voice.AnnouncementCursor
+import io.snailrun.domain.voice.RunNotice
 import io.snailrun.domain.voice.AnnouncementScheduler
 import io.snailrun.domain.voice.RunProgress
 import io.snailrun.domain.voice.VoiceConfig
@@ -88,12 +89,23 @@ class RunRecorder(
     /** Set by the service; the recorder never talks to Android directly. */
     var onAnnouncement: ((Announcement) -> Unit)? = null
 
+    /** The same, for the things the app does to the run rather than reports about it. */
+    var onNotice: ((RunNotice) -> Unit)? = null
+
+    /**
+     * Read once at the start of a run, like the auto-pause setting beside it. A notice
+     * is part of the voice feature: someone who turned the voice off wants the app
+     * quiet, including about its own decisions.
+     */
+    private var voiceEnabled: Boolean = false
+
     /** [source] tags the run, so a demo one is never mistaken for a real one. */
     suspend fun start(source: String = SOURCE_RECORDED): Long = mutex.withLock {
         val saved = settings.settings.first()
         scheduler = AnnouncementScheduler(saved.voice)
         cursor = AnnouncementCursor()
         accumulator = MetricsAccumulator()
+        voiceEnabled = saved.voice.enabled
         autoPause = if (saved.autoPauseEnabled) AutoPauseDetector() else null
         autoPauseSmoother = TrackSmoother()
         pending.clear()
@@ -121,6 +133,7 @@ class RunRecorder(
             lastTimeAnnouncedActiveMs = run.lastTimeAnnouncedActiveMs,
         )
         accumulator = MetricsAccumulator().apply { restore(stored) }
+        voiceEnabled = saved.voice.enabled
         autoPause = if (saved.autoPauseEnabled) AutoPauseDetector() else null
         autoPauseSmoother = TrackSmoother()
         pending.clear()
@@ -188,15 +201,24 @@ class RunRecorder(
                 accumulator.pause(manual = false)
                 flush(id)
                 publish()
+                announce(RunNotice.AutoPaused)
             }
 
             AutoPauseEvent.Resume -> {
                 accumulator.resume()
                 publish()
+                // Said on the way out as well as in. A clock that started again without
+                // saying so is the more expensive silence: the runner who missed the
+                // pause is still standing there believing they are being timed.
+                announce(RunNotice.AutoResumed)
             }
 
             AutoPauseEvent.None -> Unit
         }
+    }
+
+    private fun announce(notice: RunNotice) {
+        if (voiceEnabled) onNotice?.invoke(notice)
     }
 
     /**

@@ -9,6 +9,16 @@ data class Announcement(
     val lastSplitPaceSecPerKm: Double?,
 )
 
+/**
+ * Something the app did to the run, said aloud as it happens.
+ *
+ * Separate from [Announcement] because it carries no figures and answers to no
+ * schedule. A milestone is due at a distance the runner is heading towards; a notice is
+ * the app reporting that it has just stopped the clock for them, and it is worth
+ * nothing a minute late.
+ */
+enum class RunNotice { AutoPaused, AutoResumed }
+
 sealed interface Milestone {
     data class Distance(val meters: Double) : Milestone
     data class Time(val millis: Long) : Milestone

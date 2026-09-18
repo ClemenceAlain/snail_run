@@ -4,8 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.snailrun.AppContainer
+import io.snailrun.data.db.PersonalRecord
 import io.snailrun.data.db.RunEntity
 import io.snailrun.data.repo.RunRepository
+import io.snailrun.domain.analysis.BestEffortFinder
 import io.snailrun.domain.analysis.CalendarMonth
 import io.snailrun.domain.analysis.DayTotal
 import io.snailrun.domain.analysis.Progress
@@ -21,9 +23,22 @@ import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
-enum class HistoryMode { List, Calendar, Progress }
+enum class HistoryMode { List, Calendar, Progress, Records }
+
+/**
+ * The best time over one distance, across every run.
+ *
+ * [record] is null for a distance no finished run has covered yet. Those are still
+ * listed: an empty row says what the app is watching for, where an absent one would
+ * just look like the feature stops at 10 km.
+ */
+data class DistanceRecord(
+    val distanceMeters: Int,
+    val record: PersonalRecord?,
+)
 
 /** Twelve bars: a season of weeks, or a year of months. Both fit a phone's width. */
 private const val PROGRESS_BUCKETS = 12
@@ -37,6 +52,7 @@ data class HistoryUiState(
     val visibleRuns: List<RunEntity> = emptyList(),
     val progressPeriod: ProgressPeriod = ProgressPeriod.Week,
     val progress: List<ProgressBucket> = emptyList(),
+    val records: List<DistanceRecord> = emptyList(),
 )
 
 /**
@@ -57,6 +73,21 @@ class HistoryViewModel(private val repository: RunRepository) : ViewModel() {
         viewModelScope.launch {
             repository.observeHistory().collect { runs ->
                 _ui.value = rebuild(_ui.value.copy(runs = runs))
+            }
+        }
+
+        // Read from the stored best efforts rather than recomputed here. Every finished
+        // run already has its efforts derived and saved, so the record over all of them
+        // is one indexed query per distance, and it stays right when a run is deleted.
+        viewModelScope.launch {
+            combine(
+                BestEffortFinder.StandardDistances.map { repository.observePersonalRecord(it) }
+            ) { found ->
+                BestEffortFinder.StandardDistances.mapIndexed { i, distance ->
+                    DistanceRecord(distanceMeters = distance, record = found[i])
+                }
+            }.collect { records ->
+                _ui.value = _ui.value.copy(records = records)
             }
         }
     }

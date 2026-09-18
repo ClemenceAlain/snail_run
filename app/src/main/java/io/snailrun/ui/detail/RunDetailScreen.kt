@@ -53,6 +53,8 @@ data class RunDetailUiState(
     val profile: List<ProfileSample> = emptyList(),
     /** The stretch the reader has dragged out on the graph, if any. */
     val selection: ProfileSelection? = null,
+    /** That same stretch as a trace, ready to draw over the run. */
+    val selectedSegments: List<List<LatLon>> = emptyList(),
     /** Distances for which this run currently holds the record. */
     val records: List<Pair<Int, Long>> = emptyList(),
 )
@@ -104,6 +106,7 @@ fun RunDetailScreen(
                 ) {
                     RouteTrace(
                         segments = state.segments,
+                        highlight = state.selectedSegments,
                         basemap = basemap,
                         modifier = Modifier.fillMaxSize(),
                     )

@@ -11,6 +11,7 @@ import android.speech.tts.UtteranceProgressListener
 import android.speech.tts.Voice
 import io.snailrun.domain.voice.Announcement
 import io.snailrun.domain.voice.PaceSpeechFormatter
+import io.snailrun.domain.voice.RunNotice
 import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -40,6 +41,7 @@ sealed interface TtsState {
 interface VoiceAnnouncer {
     val state: StateFlow<TtsState>
     fun speak(announcement: Announcement)
+    fun speak(notice: RunNotice)
     fun speakSample()
     fun setSpeechRate(rate: Float)
     fun shutdown()
@@ -165,6 +167,10 @@ class AndroidVoiceAnnouncer(
 
     override fun speak(announcement: Announcement) {
         say(formatter.format(announcement))
+    }
+
+    override fun speak(notice: RunNotice) {
+        say(formatter.format(notice))
     }
 
     override fun speakSample() {

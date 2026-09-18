@@ -114,6 +114,9 @@ class RunRecordingService : Service() {
         container.runRecorder.onAnnouncement = { announcement ->
             container.voiceAnnouncer.speak(announcement)
         }
+        container.runRecorder.onNotice = { notice ->
+            container.voiceAnnouncer.speak(notice)
+        }
         container.runRecorder.state
             .onEach { state ->
                 if (state is RecordingState.Active) {
@@ -217,6 +220,7 @@ class RunRecordingService : Service() {
     override fun onDestroy() {
         try {
             container.runRecorder.onAnnouncement = null
+            container.runRecorder.onNotice = null
             scope.cancel()
         } finally {
             wakeLock?.takeIf { it.isHeld }?.release()

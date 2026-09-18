@@ -16,6 +16,7 @@ interface SpeechVocabulary {
     val averagePaceLabel: String               // "average pace"
     val lastSplitLabel: String                 // "last kilometre"
     val perKilometre: String                   // "per kilometre"
+    fun notice(notice: RunNotice): String      // "paused" / "running again"
     val sentenceSeparator: String get() = ". "
 }
 
@@ -27,6 +28,8 @@ interface SpeechVocabulary {
  * de-Googled phone, is the most literal of all.
  */
 class PaceSpeechFormatter(private val vocabulary: SpeechVocabulary) {
+
+    fun format(notice: RunNotice): String = vocabulary.notice(notice)
 
     fun format(announcement: Announcement): String {
         val parts = mutableListOf<String>()

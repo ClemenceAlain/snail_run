@@ -11,12 +11,13 @@ network socket. Nothing it records can leave the device.
 - Records a run from the GPS chip: distance, moving time, pace, approximate elevation.
 - Corrects the positions as it goes: jitter smoothed, reflections pulled back onto the
   track, dropouts ridden out.
-- Optionally stops the clock when you stop, and starts it again when you move off.
+- Optionally stops the clock when you stop, and starts it again when you move off,
+  saying so aloud both times.
 - Speaks your pace aloud at every kilometre, using an on-device speech engine.
 - Saves every finished run as a GPX file in a folder you pick once.
-- Lists past runs as a list, a calendar or a progress chart, and shows one with its
-  trace, its pace-and-elevation graph and any records. Drag across the graph for the
-  average over any stretch.
+- Lists past runs as a list, a calendar, a progress chart or your records, and shows one
+  with its trace, its pace-and-elevation graph and any records. Drag across the graph for
+  the average over any stretch — it lights up on the trace as you drag.
 - Draws the trace on an offline map, and opens it full screen to drag, pinch and
   double-tap around. A small demo map is in the APK, so that works before you supply
   one.
@@ -24,8 +25,8 @@ network socket. Nothing it records can leave the device.
 - Survives being killed mid-run: the track is in the database, and the app offers to
   finish or continue it on next launch.
 
-Nothing is planned next. The Runs tab's three modes — list, calendar, progress — and the
-run's own screen cover what the app set out to do.
+Nothing is planned next. The Runs tab's four modes — list, calendar, progress, records —
+and the run's own screen cover what the app set out to do.
 
 ## Demo mode
 
@@ -81,6 +82,20 @@ even if the backup carried them — and the map file is hundreds of megabytes yo
 have the original of. A GPX export is not a restore path either: it is a copy for other
 programs, and nothing reads it back.
 
+## Records
+
+Runs → **Records** is the best time over each standard distance — 1 km, 5 km, 10 km, half
+marathon, marathon — across every run, with the run it was set on one tap away. A distance
+nothing has covered yet is still listed, greyed: a list that simply stopped at 10 km would
+read as the app having no opinion about a half marathon, rather than as a half marathon
+not having been run.
+
+It is a read over the best efforts already stored with each run, not a fresh pass over
+every track. So it costs one indexed query per distance, and it is still right the moment
+a run is deleted.
+
+Demo runs are excluded, and so are runs still being recorded.
+
 ## The map
 
 Settings → Map. There is no way to fetch a tile — no `INTERNET` permission — so the map
@@ -126,7 +141,21 @@ A few things behind it:
   frame. Projecting a latitude costs an `asinh` and a `tan`, and Mercator scales linearly
   with zoom, so a dragged map need not pay it for every point on every frame.
 
-### The map in the APK
+### Records
+
+Runs → **Records** is the best time over each standard distance — 1 km, 5 km, 10 km, half
+marathon, marathon — across every run, with the run it was set on one tap away. A distance
+nothing has covered yet is still listed, greyed: a list that simply stopped at 10 km would
+read as the app having no opinion about a half marathon, rather than as a half marathon
+not having been run.
+
+It is a read over the best efforts already stored with each run, not a fresh pass over
+every track. So it costs one indexed query per distance, and it is still right the moment
+a run is deleted.
+
+Demo runs are excluded, and so are runs still being recorded.
+
+## The map in the APK
 
 `app/src/main/assets/demo.mbtiles` is a small raster map covering the ground the demo run
 is run on, so demo mode shows a trace on a map before you have supplied one.
@@ -255,6 +284,12 @@ resume events, each splitting the track into another segment.
 - Resuming fires at a lower bar and a shorter dwell than pausing, because the two
   mistakes do not cost the same: a late pause adds a few seconds of standing to the
   clock, a late resume silently drops real running out of it.
+
+Both are said aloud — "paused", and "running again" — if the voice is on. It rides on the
+voice setting rather than one of its own: someone who turned the voice off wants the app
+quiet, including about its own decisions. The resume is the more important of the two. A
+runner who missed the pause is standing at a light believing they are still being timed;
+a clock that restarted without saying so never corrects them.
 
 ## Testing without a device
 

@@ -53,4 +53,43 @@ class ProjectionTest {
     fun `an empty track projects to nothing`() {
         assertTrue(Projection.fit(emptyList(), 100f, 100f, 8f).isEmpty())
     }
+
+    @Test
+    fun `a subset projected through the whole track's frame lands on it`() {
+        // What a graph selection does: a stretch of the run drawn over the run. Fitting
+        // the stretch on its own would scale it to fill the canvas, and the highlight
+        // would sit somewhere the trace beneath it never goes.
+        val track = listOf(
+            LatLon(48.8560, 2.3500),
+            LatLon(48.8570, 2.3520),
+            LatLon(48.8580, 2.3540),
+            LatLon(48.8590, 2.3560),
+        )
+        val whole = Projection.fit(track, 400f, 300f, 10f)
+        val project = Projection.fitting(track, 400f, 300f, 10f)
+
+        val stretch = track.subList(1, 3)
+        val projected = stretch.map(project)
+
+        assertEquals(whole[1].x, projected[0].x, 1e-4f)
+        assertEquals(whole[1].y, projected[0].y, 1e-4f)
+        assertEquals(whole[2].x, projected[1].x, 1e-4f)
+        assertEquals(whole[2].y, projected[1].y, 1e-4f)
+    }
+
+    @Test
+    fun `fit and fitting are the same transform`() {
+        val track = listOf(
+            LatLon(48.8560, 2.3500),
+            LatLon(48.8600, 2.3600),
+            LatLon(48.8520, 2.3560),
+        )
+        val project = Projection.fitting(track, 200f, 200f, 8f)
+
+        Projection.fit(track, 200f, 200f, 8f).forEachIndexed { i, expected ->
+            val actual = project(track[i])
+            assertEquals(expected.x, actual.x, 1e-4f)
+            assertEquals(expected.y, actual.y, 1e-4f)
+        }
+    }
 }

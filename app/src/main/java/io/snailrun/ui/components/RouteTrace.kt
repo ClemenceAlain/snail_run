@@ -53,6 +53,11 @@ import kotlin.math.pow
 fun RouteTrace(
     segments: List<List<LatLon>>,
     modifier: Modifier = Modifier,
+    /**
+     * A stretch of the run to pick out, dragged on the pace graph. Drawn over the trace
+     * in the same frame, so the two cannot disagree about where it is.
+     */
+    highlight: List<List<LatLon>> = emptyList(),
     basemap: BasemapLayer? = null,
     strokeWidth: Dp = 4.dp,
     padding: Dp = 12.dp,
@@ -63,8 +68,10 @@ fun RouteTrace(
     val traceColor = SnailTheme.extended.trace
     val startColor = MaterialTheme.colorScheme.primary
     val endColor = MaterialTheme.colorScheme.secondary
+    val highlightColor = MaterialTheme.colorScheme.secondary
 
     val simplified = rememberSimplified(segments, maxPoints)
+    val selected = rememberSimplified(highlight, maxPoints)
     val bounds = remember(simplified) { LatLonBounds.of(simplified.flatten()) }
 
     var played by remember { mutableStateOf(!animateOnFirstShow) }
@@ -106,26 +113,40 @@ fun RouteTrace(
 
             viewport?.let { drawBasemap(it, tiles, size.width, size.height) }
 
-            // One projection over every segment, so they share a frame of reference.
+            // One projection over every segment, so they share a frame of reference —
+            // and the same one over the highlight, which is cut from the same track.
             val flattened = simplified.flatten()
-            val projected = viewport?.let { view ->
-                flattened.map { point ->
-                    val (x, y) = view.project(point)
-                    Offset(x, y)
-                }
-            } ?: Projection.fit(flattened, size.width, size.height, paddingPx)
-                .map { Offset(it.x, it.y) }
+            val project: (LatLon) -> Offset = viewport?.let { view ->
+                { point -> view.project(point).let { (x, y) -> Offset(x, y) } }
+            } ?: Projection.fitting(flattened, size.width, size.height, paddingPx)
+                .let { fitted -> { point -> fitted(point).let { Offset(it.x, it.y) } } }
 
             drawTrace(
                 segments = simplified,
-                projected = projected,
-                traceColor = traceColor,
+                projected = flattened.map(project),
+                traceColor = if (selected.isEmpty()) traceColor else traceColor.copy(alpha = 0.35f),
                 startColor = startColor,
                 endColor = endColor,
                 strokePx = strokePx,
                 progress = progress,
                 showEndpoints = showEndpoints,
             )
+
+            // Over the top, at full strength against a faded run. Dimming the rest
+            // rather than only brightening the stretch is what makes a selection
+            // readable on a trace that doubles back over itself.
+            if (selected.isNotEmpty() && progress >= 1f) {
+                drawTrace(
+                    segments = selected,
+                    projected = selected.flatten().map(project),
+                    traceColor = highlightColor,
+                    startColor = highlightColor,
+                    endColor = highlightColor,
+                    strokePx = strokePx * 1.5f,
+                    progress = 1f,
+                    showEndpoints = true,
+                )
+            }
         }
     }
 }
