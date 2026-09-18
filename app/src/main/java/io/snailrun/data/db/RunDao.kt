@@ -144,7 +144,14 @@ interface RunDao {
     )
     fun observeMonthlyTotals(): Flow<List<PeriodTotal>>
 
-    /** Index-only lookup thanks to best_efforts(distanceMeters, durationMs). */
+    /**
+     * Index-only lookup thanks to best_efforts(distanceMeters, durationMs).
+     *
+     * Demo runs count. They are recorded like any other run and they are already badged
+     * everywhere they appear, so a record set on one is visibly a record set on one — and
+     * a runner who tries the app indoors and finds their first record silently missing
+     * has been told something untrue about what the app stores.
+     */
     @Query(
         """
         SELECT be.distanceMeters AS distanceMeters,
@@ -155,7 +162,6 @@ interface RunDao {
         JOIN runs r ON r.id = be.runId
         WHERE be.distanceMeters = :distanceMeters
           AND r.status = 'COMPLETE'
-          AND r.source != 'DEMO'
         ORDER BY be.durationMs ASC
         LIMIT 1
         """
@@ -169,8 +175,7 @@ interface RunDao {
      * Not one query per distance like [observePersonalRecord]: the coach wants the best
      * *recent* effort at each distance rather than the best ever, and a personal record
      * set eighteen months ago would have it prescribing paces from a fitness the runner
-     * no longer has. Demo runs are excluded here for the same reason they are excluded
-     * from records — a synthetic trace is not evidence about a person.
+     * no longer has.
      */
     @Query(
         """
@@ -181,7 +186,6 @@ interface RunDao {
         FROM best_efforts be
         JOIN runs r ON r.id = be.runId
         WHERE r.status = 'COMPLETE'
-          AND r.source != 'DEMO'
           AND r.localDate >= :since
         """
     )

@@ -9,12 +9,10 @@ import io.snailrun.data.db.RunEntity
 import io.snailrun.data.prefs.CoachSettings
 import io.snailrun.data.prefs.SettingsRepository
 import io.snailrun.data.repo.RunRepository
-import io.snailrun.data.repo.SOURCE_DEMO
 import io.snailrun.domain.coach.CoachRun
 import io.snailrun.domain.coach.Fitness
 import io.snailrun.domain.coach.RaceGoal
 import io.snailrun.domain.coach.RecentEffort
-import io.snailrun.domain.coach.TrainingLoad
 import io.snailrun.domain.coach.WeekPlan
 import io.snailrun.domain.coach.WeekPlanner
 import java.time.DayOfWeek
@@ -30,15 +28,18 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
+/** How far ahead the block runs. Four weeks is a training cycle and fits a scroll. */
+const val COACH_WEEKS = 4
+
 data class CoachUiState(
-    val plan: WeekPlan? = null,
+    val weeks: List<WeekPlan> = emptyList(),
     val goal: RaceGoal? = null,
-    /** How many finished runs the plan could be built from. Under three, it says so. */
-    val runCount: Int = 0,
     val loaded: Boolean = false,
     /** Which day's detail is open. One at a time; a week of expanded cards is a wall. */
     val expanded: LocalDate? = null,
-)
+) {
+    val fitness get() = weeks.firstOrNull()?.fitness
+}
 
 /**
  * The week's plan, rebuilt from history every time anything in the history changes.
@@ -51,7 +52,7 @@ data class CoachUiState(
  */
 class CoachViewModel(
     private val repository: RunRepository,
-    settings: SettingsRepository,
+    private val settings: SettingsRepository,
     private val today: LocalDate = LocalDate.now(),
 ) : ViewModel() {
 
@@ -75,16 +76,42 @@ class CoachViewModel(
         _ui.value = _ui.value.copy(expanded = if (_ui.value.expanded == date) null else date)
     }
 
+    /**
+     * Records that a session has been dragged from one day to another.
+     *
+     * Only the permutation is written. The plan is left to be recomputed from the history
+     * as it always is, so a move survives a new run being recorded, an app restart and a
+     * change to the planner itself — none of which a stored plan would survive intact.
+     */
+    fun move(weekStart: LocalDate, from: Int, to: Int) {
+        val plan = _ui.value.weeks.firstOrNull { it.weekStart == weekStart } ?: return
+        val order = WeekPlanner.moveOrder(plan.order ?: WeekPlanner.identityOrder, from, to)
+        viewModelScope.launch {
+            settings.setCoachDayOrder(
+                weekStartEpochDay = weekStart.toEpochDay(),
+                order = order,
+                keepFrom = today.with(TemporalAdjusters.previousOrSame(firstDayOfWeek())).toEpochDay(),
+            )
+        }
+    }
+
+    /** Puts one week back the way the rules laid it out. */
+    fun resetWeek(weekStart: LocalDate) {
+        viewModelScope.launch {
+            settings.setCoachDayOrder(
+                weekStartEpochDay = weekStart.toEpochDay(),
+                order = null,
+                keepFrom = today.with(TemporalAdjusters.previousOrSame(firstDayOfWeek())).toEpochDay(),
+            )
+        }
+    }
+
     private fun build(
         runs: List<RunEntity>,
         efforts: List<PersonalRecord>,
         saved: CoachSettings,
     ): CoachUiState {
-        // Demo runs are excluded here as they are from records. A synthetic trace says
-        // nothing about a person's legs, and letting one set next week's volume would be
-        // the app training the runner on its own fiction.
         val coachRuns = runs
-            .filter { it.source != SOURCE_DEMO }
             .mapNotNull { run ->
                 val date = runCatching { LocalDate.parse(run.localDate) }.getOrNull()
                     ?: return@mapNotNull null
@@ -93,21 +120,21 @@ class CoachViewModel(
 
         val firstDay = firstDayOfWeek()
         val weekStart = today.with(TemporalAdjusters.previousOrSame(firstDay))
-
-        val load = TrainingLoad.summarise(coachRuns, today, firstDay)
         val fitness = Fitness.estimate(efforts.map { it.toRecentEffort() }, today)
         val goal = saved.toGoal()
 
         return CoachUiState(
-            plan = WeekPlanner.plan(
-                load = load,
+            weeks = WeekPlanner.block(
+                runs = coachRuns,
                 fitness = fitness,
                 goal = goal,
-                weekStart = weekStart,
-                thisWeeksRuns = coachRuns.filter { it.date >= weekStart && it.date <= today },
+                firstWeekStart = weekStart,
+                today = today,
+                weeks = COACH_WEEKS,
+                firstDayOfWeek = firstDay,
+                orders = saved.dayOrders.mapKeys { LocalDate.ofEpochDay(it.key) },
             ),
             goal = goal,
-            runCount = coachRuns.size,
             loaded = true,
         )
     }

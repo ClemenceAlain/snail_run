@@ -4,6 +4,9 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.FlowRowScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -106,7 +109,7 @@ fun SettingsScreen(
 
                     Text("Announce every", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(Spacing.s))
-                    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                    ChipRow {
                         listOf(0.0, 500.0, 1000.0, 2000.0, 5000.0).forEach { meters ->
                             FilterChip(
                                 selected = settings.voice.everyMeters == meters,
@@ -117,7 +120,7 @@ fun SettingsScreen(
                     }
 
                     Spacer(Modifier.height(Spacing.m))
-                    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                    ChipRow {
                         listOf(0, 5, 10, 15).forEach { minutes ->
                             FilterChip(
                                 selected = settings.voice.everyMillis == minutes * 60_000L,
@@ -211,7 +214,7 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+            ChipRow {
                 TextButton(onClick = actions.onChooseBasemap) {
                     Text(if (settings.basemapUri == null) "Choose map file" else "Replace")
                 }
@@ -236,7 +239,7 @@ fun SettingsScreen(
             Spacer(Modifier.height(Spacing.l))
             Text("Training for", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(Spacing.s))
-            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+            ChipRow {
                 FilterChip(
                     selected = settings.coach.targetDistanceMeters == null,
                     onClick = { actions.onCoachTarget(null, null) },
@@ -317,7 +320,7 @@ fun SettingsScreen(
                     Spacer(Modifier.height(Spacing.l))
                     Text("Speed", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(Spacing.s))
-                    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                    ChipRow {
                         listOf(1, 10, 30, 60).forEach { factor ->
                             FilterChip(
                                 selected = settings.demo.speedFactor == factor,
@@ -387,6 +390,23 @@ fun SettingsScreen(
             )
         }
     }
+}
+
+/**
+ * A row of chips that wraps.
+ *
+ * Five of them — nothing, 5 km, 10 km, half, marathon — do not fit across a phone, and a
+ * plain `Row` answers that by squeezing the last one until "Marathon" breaks across two
+ * lines inside its own chip. Wrapping to a second line is what the reader expected.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ChipRow(content: @Composable FlowRowScope.() -> Unit) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+        verticalArrangement = Arrangement.spacedBy(Spacing.s),
+        content = content,
+    )
 }
 
 /**

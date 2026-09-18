@@ -227,6 +227,8 @@ class MainActivity : ComponentActivity() {
         CoachScreen(
             state = ui,
             onExpand = viewModel::expand,
+            onMove = viewModel::move,
+            onResetWeek = viewModel::resetWeek,
             today = LocalDate.now(),
         )
     }

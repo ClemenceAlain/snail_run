@@ -112,7 +112,7 @@ class RunRecorderTest {
     }
 
     @Test
-    fun `a demo run is stored and labelled, but never becomes a personal record`() = runTest {
+    fun `a demo run is stored, labelled, and counts like any other`() = runTest {
         val profile = DemoRunProfile(stops = emptyList())
         val demoId = recorder.start(SOURCE_DEMO)
         DemoRoute.fixes(profile, startEpochMs = clock.nowMs)
@@ -130,14 +130,17 @@ class RunRecorderTest {
         assertEquals(3_640.0, run.distanceMeters, 300.0)
         assertTrue(repository.observeSplits(demoId).first().size >= 3)
 
-        assertNull(
-            "a demo run must not hold a record",
+        // It holds records and feeds the coach like any other run. It is badged DEMO
+        // everywhere it appears, so a record set on one is visibly a record set on one —
+        // where silently dropping it would tell the runner something untrue about what
+        // the app keeps.
+        assertNotNull(
+            "a demo run is a run",
             repository.observePersonalRecord(1_000).first(),
         )
-
-        // And a real run of the same shape still does.
-        runFixture(seconds = 1200)
-        assertNotNull(repository.observePersonalRecord(1_000).first())
+        assertTrue(
+            repository.observeRecentEfforts("2000-01-01").first().any { it.runId == demoId },
+        )
     }
 
     @Test

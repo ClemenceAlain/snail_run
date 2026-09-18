@@ -23,6 +23,21 @@ data class WeekPlan(
     val phase: Phase? = null,
     val predictedTimeMs: Long? = null,
     val fitness: FitnessEstimate? = null,
+    /**
+     * What the week has been moved into, if the runner has moved anything.
+     *
+     * A permutation of 0..6: position *k* holds the session originally planned for day
+     * `order[k]`. Null means the plan is as the rules laid it out.
+     */
+    val order: List<Int>? = null,
+    /**
+     * Rules the runner's own reordering has broken.
+     *
+     * The plan does not refuse a move, and it does not silently put the week back. It
+     * says what the move costs and leaves the decision where it belongs — someone who
+     * has to be at work on Tuesday knows something the planner does not.
+     */
+    val conflicts: List<String> = emptyList(),
 )
 
 /**
@@ -163,6 +178,130 @@ object WeekPlanner {
             fitness = fitness,
         )
     }
+
+    /**
+     * The same week, planned out for [weeks] weeks running.
+     *
+     * Each week after the first is planned against a history that already contains the
+     * weeks before it, as though they had been run exactly as written. That is the only
+     * honest way to show a block: the second week's ten per cent is ten per cent of the
+     * first week's plan, not of the week the runner actually just did, and a block built
+     * without rolling the history forward shows four identical weeks and no progression
+     * at all.
+     *
+     * Fitness is *not* rolled forward. The paces stay at what the runner's efforts say
+     * today, because a projected VDOT four weeks out is a guess, and a guess in a pace is
+     * the one thing this whole module exists to avoid.
+     */
+    fun block(
+        runs: List<CoachRun>,
+        fitness: FitnessEstimate?,
+        goal: RaceGoal?,
+        firstWeekStart: LocalDate,
+        today: LocalDate,
+        weeks: Int,
+        firstDayOfWeek: DayOfWeek = DayOfWeek.MONDAY,
+        orders: Map<LocalDate, List<Int>> = emptyMap(),
+    ): List<WeekPlan> {
+        if (weeks <= 0) return emptyList()
+        val history = runs.toMutableList()
+        val plans = mutableListOf<WeekPlan>()
+
+        repeat(weeks) { index ->
+            val weekStart = firstWeekStart.plusWeeks(index.toLong())
+            // The first week is planned from where the runner stands now; a later one is
+            // planned from the day before it starts, so its "last week" is the week just
+            // written rather than a week half over.
+            val asOf = if (index == 0) today else weekStart.minusDays(1)
+
+            val plan = plan(
+                load = TrainingLoad.summarise(history, asOf, firstDayOfWeek),
+                fitness = fitness,
+                goal = goal,
+                weekStart = weekStart,
+                thisWeeksRuns = if (index == 0) {
+                    runs.filter { it.date >= weekStart && it.date <= today }
+                } else {
+                    emptyList()
+                },
+            ).let { orders[weekStart]?.let { order -> it.reordered(order) } ?: it }
+
+            plans += plan
+            history += plan.days
+                .filter { it.workout.type != WorkoutType.Rest }
+                .map { CoachRun(it.date, it.workout.totalMeters, 0) }
+        }
+        return plans
+    }
+
+    /**
+     * Moves the session at [from] to [to], shifting everything between along by a day.
+     *
+     * A move rather than a swap, because that is what a runner means. Pushing Tuesday's
+     * tempo to Thursday should slide Wednesday and Thursday back a day, not trade the
+     * tempo for whatever Thursday happened to hold.
+     */
+    fun moveOrder(current: List<Int>, from: Int, to: Int): List<Int> {
+        if (from !in current.indices || to !in current.indices || from == to) return current
+        val moved = current.toMutableList()
+        moved.add(to, moved.removeAt(from))
+        return moved
+    }
+
+    val identityOrder: List<Int> get() = (0..6).toList()
+
+    /**
+     * Applies a runner's reordering to a planned week.
+     *
+     * The dates stay put and the workouts move between them, so a session keeps its
+     * shape and changes its day. `done` is re-read from the date rather than carried with
+     * the workout: a run recorded on Tuesday marks Tuesday done whatever is now sitting
+     * on it.
+     */
+    fun WeekPlan.reordered(order: List<Int>): WeekPlan {
+        if (order.sorted() != days.indices.toList()) return this
+        val moved = order.mapIndexed { position, source ->
+            days[position].copy(workout = days[source].workout)
+        }
+        return copy(
+            days = moved,
+            order = if (order == identityOrder) null else order,
+            conflicts = conflictsIn(moved),
+        )
+    }
+
+    /**
+     * What a reordered week now gets wrong.
+     *
+     * Only things the rules would have refused outright. A week the runner has shuffled
+     * is still their week, and a screen full of advice about a plan they deliberately
+     * changed reads as nagging rather than as a warning worth reading.
+     */
+    private fun conflictsIn(days: List<PlannedDay>): List<String> {
+        val warnings = mutableListOf<String>()
+        val hard = days.filter { it.workout.type.isQuality || it.workout.type == WorkoutType.Long }
+
+        hard.zipWithNext().forEach { (first, second) ->
+            if (second.date.toEpochDay() - first.date.toEpochDay() == 1L) {
+                warnings += "${dayName(first.date)} and ${dayName(second.date)} are now both " +
+                    "hard. Back-to-back hard days are the quickest way to lose a fortnight."
+            }
+        }
+
+        val runs = days.filter { it.workout.type != WorkoutType.Rest }
+        runs.windowed(4, 1, partialWindows = false).forEach { window ->
+            val consecutive = window.zipWithNext()
+                .all { (a, b) -> b.date.toEpochDay() - a.date.toEpochDay() == 1L }
+            if (consecutive && warnings.none { it.startsWith("Four") }) {
+                warnings += "Four days running without a rest. That is more than the plan " +
+                    "asked for, and the rest days are where the training lands."
+            }
+        }
+        return warnings
+    }
+
+    private fun dayName(date: LocalDate) =
+        date.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.ENGLISH)
 
     // ---- the week's size -------------------------------------------------------------
 

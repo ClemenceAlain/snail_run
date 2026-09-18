@@ -42,7 +42,43 @@ data class Settings(
 data class CoachSettings(
     val targetDistanceMeters: Int? = null,
     val targetDateEpochDay: Long? = null,
+    /**
+     * Weeks the runner has rearranged by hand, keyed on the week's first day.
+     *
+     * The plan itself is never stored — it is recomputed from the history every time it
+     * is shown. What is stored is the one thing that cannot be recomputed: the fact that
+     * somebody dragged Tuesday's tempo to Thursday because they are at work on Tuesday.
+     * A permutation survives a replan, where a stored plan would have to be reconciled
+     * with one.
+     */
+    val dayOrders: Map<Long, List<Int>> = emptyMap(),
 )
+
+/**
+ * `20353:3,0,1,2,4,5,6|20360:0,1,2,3,4,5,6`
+ *
+ * One preference holding every rearranged week rather than a key each. DataStore takes
+ * dynamic keys happily enough, but they are never enumerable, so old weeks could only
+ * accumulate — and a runner who moves a session most weeks would leave a key behind for
+ * every week they ever ran.
+ */
+internal object DayOrders {
+
+    fun encode(orders: Map<Long, List<Int>>): String =
+        orders.entries.sortedBy { it.key }
+            .joinToString("|") { (week, order) -> "$week:${order.joinToString(",")}" }
+
+    fun decode(raw: String?): Map<Long, List<Int>> {
+        if (raw.isNullOrBlank()) return emptyMap()
+        return raw.split("|").mapNotNull { entry ->
+            val week = entry.substringBefore(':').toLongOrNull() ?: return@mapNotNull null
+            val order = entry.substringAfter(':', "").split(",").mapNotNull(String::toIntOrNull)
+            // A permutation of exactly seven days or nothing. Anything else is a file
+            // written by a version that meant something different by it.
+            if (order.sorted() != (0..6).toList()) null else week to order
+        }.toMap()
+    }
+}
 
 /**
  * Replays a synthetic run instead of reading the GPS chip, so the app can be tried
@@ -103,6 +139,24 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
+    /**
+     * Remembers how a week has been rearranged, and forgets weeks now in the past.
+     *
+     * Pruning here rather than on a schedule: this is the only place the set is written,
+     * and a week that has been and gone cannot be rearranged again.
+     */
+    suspend fun setCoachDayOrder(weekStartEpochDay: Long, order: List<Int>?, keepFrom: Long) = edit {
+        val current = DayOrders.decode(it[COACH_DAY_ORDERS]).toMutableMap()
+        if (order == null || order == (0..6).toList()) {
+            current.remove(weekStartEpochDay)
+        } else {
+            current[weekStartEpochDay] = order
+        }
+        current.keys.retainAll { week -> week >= keepFrom }
+        val encoded = DayOrders.encode(current)
+        if (encoded.isEmpty()) it.remove(COACH_DAY_ORDERS) else it[COACH_DAY_ORDERS] = encoded
+    }
+
     suspend fun setBasemapUri(uri: String?) = edit {
         if (uri == null) it.remove(BASEMAP_URI) else it[BASEMAP_URI] = uri
     }
@@ -133,6 +187,7 @@ class SettingsRepository(private val context: Context) {
         coach = CoachSettings(
             targetDistanceMeters = this[COACH_TARGET_DISTANCE],
             targetDateEpochDay = this[COACH_TARGET_DATE],
+            dayOrders = DayOrders.decode(this[COACH_DAY_ORDERS]),
         ),
     )
 
@@ -153,5 +208,6 @@ class SettingsRepository(private val context: Context) {
         val DEMO_SPEED_FACTOR = intPreferencesKey("demo_speed_factor")
         val COACH_TARGET_DISTANCE = intPreferencesKey("coach_target_distance")
         val COACH_TARGET_DATE = longPreferencesKey("coach_target_date")
+        val COACH_DAY_ORDERS = stringPreferencesKey("coach_day_orders")
     }
 }

@@ -21,9 +21,9 @@ network socket. Nothing it records can leave the device.
 - Draws the trace on an offline map, and opens it full screen to drag, pinch and
   double-tap around. A small demo map is in the APK, so that works before you supply
   one.
-- Suggests the coming week's training from the runs already recorded: named sessions,
-  paces derived from your own best efforts, and volume that cannot ramp faster than is
-  safe. Optionally counts back from a race date.
+- Suggests the next four weeks of training from the runs already recorded: named
+  sessions, paces derived from your own best efforts, and volume that cannot ramp faster
+  than is safe. Hold a day to drag it elsewhere. Optionally counts back from a race date.
 - Backs every run up to one file you choose, and puts one back.
 - Survives being killed mid-run: the track is in the database, and the app offers to
   finish or continue it on next launch.
@@ -44,9 +44,12 @@ the ones an hour of real running would have produced.
 Demo runs are drawn on the map in the APK, which covers exactly the ground the synthetic
 trace goes over. See **The map in the APK** below.
 
-A demo run is recorded like any other — it lands in the database and in your history —
-so it is tagged `DEMO`, badged in the list, announced in red on the record screen while
-it runs, and excluded from personal records. Delete it from its own screen when done.
+A demo run is recorded like any other, and counts like any other: it lands in the
+database and in your history, it can hold a personal record, and the coach prices your
+training paces off it. It is tagged `DEMO`, badged in the list and announced in red on
+the record screen while it runs, so a record set on one is visibly a record set on one.
+Delete it from its own screen when done — dropping it silently from the totals would
+have told you something untrue about what the app keeps.
 
 The generator lives in `domain/demo/DemoRoute.kt` and is pure, so the trace the phone
 replays is the one the tests assert on.
@@ -301,6 +304,23 @@ cruise intervals, intervals, hill repeats, fartlek, strides and repetitions. Whi
 week gets rotates on the week number, so the plan varies without ever being random —
 the same history always produces the same week, which is what lets the tests assert one.
 
+**Four weeks are shown, not one.** Each week after the first is planned against a history
+that already contains the weeks before it, as though they had been run exactly as
+written, so the second week's ten per cent is ten per cent of the first week's plan. A
+block built without rolling the history forward would show four identical weeks and no
+progression at all. Fitness is deliberately *not* rolled forward: the paces stay at what
+your efforts say today, because a projected VDOT four weeks out is a guess, and a guess
+in a pace is the one thing this module exists to avoid.
+
+**Hold a day to drag it somewhere else.** The days it passes shift along by one, because
+that is what moving a session means — pushing Tuesday's tempo to Thursday slides
+Wednesday and Thursday back, rather than trading the tempo for whatever Thursday held.
+Only the rearrangement is stored, keyed on the week; the plan itself is still recomputed
+from the history, so a move survives a new run, a restart and a change to the planner.
+If the move stacks two hard days or leaves four days running without a rest, the week
+says so in red and leaves it alone — somebody who has to be at work on Tuesday knows
+something the planner does not.
+
 The rules that exist so a suggestion cannot injure someone, all of them assertions in
 `WeekPlannerTest`:
 
@@ -325,11 +345,10 @@ The taper cuts volume and leaves the intensity alone — cutting both is what ma
 runner arrive rested and flat. It also shows what the distance would take at today's
 fitness, which is a reading and not a target.
 
-**Nothing about a plan is stored.** It is recomputed from the history every time the tab
-is opened, so it cannot claim on Saturday that you still owe it a tempo you have since
-run. Completion is inferred the same way: a run recorded on a planned day strikes that
-day through. Demo runs are excluded throughout, as they are from records — a synthetic
-trace is not evidence about a person's legs.
+**Nothing about a plan is stored** except where you have moved something. It is
+recomputed from the history every time the tab is opened, so it cannot claim on Saturday
+that you still owe it a tempo you have since run. Completion is inferred the same way: a
+run recorded on a planned day strikes that day through.
 
 ## Auto-pause
 
