@@ -37,8 +37,11 @@ data class CoachUiState(
     val loaded: Boolean = false,
     /** Which day's detail is open. One at a time; a week of expanded cards is a wall. */
     val expanded: LocalDate? = null,
+    /** Which of [weeks] is on screen. One at a time, stepped with the arrows. */
+    val weekIndex: Int = 0,
 ) {
     val fitness get() = weeks.firstOrNull()?.fitness
+    val week get() = weeks.getOrNull(weekIndex)
 }
 
 /**
@@ -68,8 +71,23 @@ class CoachViewModel(
                 settings.settings,
             ) { runs, efforts, saved ->
                 build(runs, efforts, saved.coach)
-            }.collect { state -> _ui.value = state.copy(expanded = _ui.value.expanded) }
+            }.collect { state ->
+                _ui.value = state.copy(
+                    expanded = _ui.value.expanded,
+                    weekIndex = _ui.value.weekIndex.coerceIn(0, (state.weeks.size - 1).coerceAtLeast(0)),
+                )
+            }
         }
+    }
+
+    fun showWeek(offset: Int) {
+        val last = (_ui.value.weeks.size - 1).coerceAtLeast(0)
+        _ui.value = _ui.value.copy(
+            weekIndex = (_ui.value.weekIndex + offset).coerceIn(0, last),
+            // The open day belonged to the week being left, and carrying it across would
+            // leave a card expanded that the reader can no longer see.
+            expanded = null,
+        )
     }
 
     fun expand(date: LocalDate) {

@@ -229,6 +229,7 @@ class MainActivity : ComponentActivity() {
             onExpand = viewModel::expand,
             onMove = viewModel::move,
             onResetWeek = viewModel::resetWeek,
+            onShowWeek = viewModel::showWeek,
             today = LocalDate.now(),
         )
     }

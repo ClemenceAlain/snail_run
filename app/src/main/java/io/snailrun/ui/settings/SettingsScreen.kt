@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import io.snailrun.data.prefs.Settings
 import io.snailrun.data.voice.TtsState
 import io.snailrun.domain.coach.Races
+import io.snailrun.ui.components.HelpButton
 import io.snailrun.ui.components.SnailCard
 import io.snailrun.ui.theme.Spacing
 import java.time.Instant
@@ -149,7 +150,13 @@ fun SettingsScreen(
         }
 
         Spacer(Modifier.height(Spacing.section))
-        SectionTitle("GPX files")
+        SectionTitle(
+            "GPX files",
+            help = listOf(
+                "A copy for other programs, written to a folder you choose once. Nothing " +
+                    "reads it back — a GPX export is not a backup.",
+            ),
+        )
 
         SnailCard(modifier = Modifier.fillMaxWidth()) {
             SwitchRow(
@@ -170,7 +177,15 @@ fun SettingsScreen(
         }
 
         Spacer(Modifier.height(Spacing.section))
-        SectionTitle("While recording")
+        SectionTitle(
+            "While recording",
+            help = listOf(
+                "Pause when I stop: the clock stops a few seconds after you do and starts " +
+                    "again when you move off.",
+                "A walking break still counts as running — only standing still pauses. " +
+                    "Pausing by hand is never undone for you.",
+            ),
+        )
 
         SnailCard(modifier = Modifier.fillMaxWidth()) {
             SwitchRow(
@@ -185,32 +200,22 @@ fun SettingsScreen(
                 checked = settings.autoPauseEnabled,
                 onCheckedChange = actions.onAutoPause,
             )
-            Spacer(Modifier.height(Spacing.s))
-            Text(
-                text = "The clock stops a few seconds after you do, and starts again " +
-                    "when you move off. A walking break still counts as running — only " +
-                    "standing still pauses. Pausing by hand is never undone for you.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
 
         Spacer(Modifier.height(Spacing.section))
-        SectionTitle("Map")
+        SectionTitle(
+            "Map",
+            help = listOf(
+                "A map file lives on the phone, like everything else here: put an MBTiles " +
+                    "extract of where you run on the device and pick it once.",
+                "Runs outside what it covers still draw, as a plain trace. Until you pick " +
+                    "one, demo runs are drawn on the small invented map the app ships with.",
+            ),
+        )
 
         SnailCard(modifier = Modifier.fillMaxWidth()) {
             Text(
                 text = basemapStatus,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(Spacing.s))
-            Text(
-                text = "A map file lives on the phone, like everything else here. Put an " +
-                    "MBTiles extract of where you run on the device and pick it once; " +
-                    "your runs are then drawn on it. Runs outside what it covers still " +
-                    "draw as a plain trace. Until you pick one, demo runs are drawn on " +
-                    "the small invented map the app ships with.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -225,18 +230,18 @@ fun SettingsScreen(
         }
 
         Spacer(Modifier.height(Spacing.section))
-        SectionTitle("Coach")
+        SectionTitle(
+            "Coach",
+            help = listOf(
+                "The Coach tab plans four weeks from the runs you have already done. It " +
+                    "needs nothing set here — without a race it builds steadily, which is " +
+                    "what most of a year looks like.",
+                "With a race set, the plan counts back from the date: it builds until four " +
+                    "weeks out, sharpens inside that, and tapers the last fortnight.",
+            ),
+        )
 
         SnailCard(modifier = Modifier.fillMaxWidth()) {
-            Text(
-                text = "The Coach tab plans a week from the runs you have already done. " +
-                    "It needs nothing set here — without a race it builds steadily and " +
-                    "safely, which is what most of a year looks like.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            Spacer(Modifier.height(Spacing.l))
             Text("Training for", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(Spacing.s))
             ChipRow {
@@ -274,13 +279,6 @@ fun SettingsScreen(
                         )
                         TextButton(onClick = { showRaceDatePicker = true }) { Text("Change") }
                     }
-                    Text(
-                        text = "Twelve weeks out the plan builds, four weeks out it sharpens, " +
-                            "and the last fortnight it tapers. Nothing about that is guessed " +
-                            "from the date — it is counted back from it.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
             }
         }
@@ -297,22 +295,21 @@ fun SettingsScreen(
         }
 
         Spacer(Modifier.height(Spacing.section))
-        SectionTitle("Demo mode")
+        SectionTitle(
+            "Demo mode",
+            help = listOf(
+                "Start replays a made-up loop instead of reading the GPS chip, so you can " +
+                    "see the numbers, the voice and the trace without going outside.",
+                "The run is saved like any other and labelled DEMO. It counts: it can hold " +
+                    "a record, and the coach reads it. Delete it from its own screen.",
+            ),
+        )
 
         SnailCard(modifier = Modifier.fillMaxWidth()) {
             SwitchRow(
                 label = "Record a fake run",
                 checked = settings.demo.enabled,
                 onCheckedChange = actions.onDemoEnabled,
-            )
-            Spacer(Modifier.height(Spacing.s))
-            Text(
-                text = "Start replays a made-up loop instead of reading the GPS chip, so " +
-                    "you can see the numbers, the voice and the trace without going " +
-                    "outside. The run is saved like any other and labelled DEMO, and it " +
-                    "is left out of your records.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             AnimatedVisibility(visible = settings.demo.enabled) {
@@ -341,29 +338,21 @@ fun SettingsScreen(
         }
 
         Spacer(Modifier.height(Spacing.section))
-        SectionTitle("Your runs")
+        SectionTitle(
+            "Your runs",
+            help = listOf(
+                "Your runs live on this phone and nowhere else. An uninstall, a factory " +
+                    "reset or a lost phone takes them with it.",
+                "A backup is one file holding every run, every track and every record. Put " +
+                    "it somewhere off the phone and it is the only copy that survives.",
+                "Settings are not in it, and neither is the map file: Android ties the GPX " +
+                    "folder and the map file to this installation, so neither could be " +
+                    "restored anyway.",
+            ),
+        )
 
         SnailCard(modifier = Modifier.fillMaxWidth()) {
-            Text(
-                text = "Your runs live on this phone and nowhere else. An uninstall, a " +
-                    "factory reset or a lost phone takes them with it. A backup is one " +
-                    "file holding every run, every track and every record — put it " +
-                    "somewhere off the phone and it is the only copy that survives.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(Spacing.s))
-            Text(
-                text = "Settings are not in it, and neither is the map file. Android " +
-                    "ties the GPX folder and the map file to this installation, so " +
-                    "neither could be restored anyway; you still have the map file you " +
-                    "picked, and the settings take a minute.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
             if (backupStatus != null) {
-                Spacer(Modifier.height(Spacing.s))
                 Text(
                     text = backupStatus,
                     style = MaterialTheme.typography.bodyMedium,
@@ -382,9 +371,7 @@ fun SettingsScreen(
 
         SnailCard(modifier = Modifier.fillMaxWidth()) {
             Text(
-                text = "snail run has no internet permission at all. Android will not " +
-                    "give it a network connection, so nothing you record can leave this " +
-                    "phone.",
+                text = "No internet permission. Nothing you record can leave this phone.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -526,13 +513,20 @@ private fun Advice(text: String, onOpenTtsSettings: () -> Unit) {
 }
 
 @Composable
-private fun SectionTitle(text: String) {
-    Text(
-        text = text.uppercase(),
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+private fun SectionTitle(text: String, help: List<String>? = null) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.padding(bottom = Spacing.s),
-    )
+    ) {
+        Text(
+            text = text.uppercase(),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (help != null) {
+            HelpButton(title = text, body = help, modifier = Modifier.padding(start = Spacing.xs))
+        }
+    }
 }
 
 @Composable

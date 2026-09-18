@@ -141,22 +141,21 @@ object WeekPlanner {
                         yesterdayWasHard -> Workouts.recovery(
                             meters = easyShare * 0.8,
                             paces = paces,
-                            reason = "The day after a hard one. Short and slow, or the hard " +
-                                "day never gets taken up.",
+                            reason = "The day after a hard one. Short and slow.",
                         )
                         !stridesPlaced && budget.strides -> {
                             stridesPlaced = true
                             Workouts.strides(
                                 meters = easyShare,
                                 paces = paces,
-                                reason = "Six accelerations inside an easy run. They cost nothing " +
-                                    "and keep your legs from forgetting what fast feels like.",
+                                reason = "Six accelerations inside an easy run. They cost " +
+                                    "nothing and keep your legs quick.",
                             )
                         }
                         else -> Workouts.easy(
                             meters = easyShare,
                             paces = paces,
-                            reason = "Four fifths of a week should feel easy. This is part of that.",
+                            reason = "Four fifths of a week should feel easy.",
                         )
                     }
                 }
@@ -283,8 +282,7 @@ object WeekPlanner {
 
         hard.zipWithNext().forEach { (first, second) ->
             if (second.date.toEpochDay() - first.date.toEpochDay() == 1L) {
-                warnings += "${dayName(first.date)} and ${dayName(second.date)} are now both " +
-                    "hard. Back-to-back hard days are the quickest way to lose a fortnight."
+                warnings += "${dayName(first.date)} and ${dayName(second.date)} are both hard."
             }
         }
 
@@ -293,8 +291,7 @@ object WeekPlanner {
             val consecutive = window.zipWithNext()
                 .all { (a, b) -> b.date.toEpochDay() - a.date.toEpochDay() == 1L }
             if (consecutive && warnings.none { it.startsWith("Four") }) {
-                warnings += "Four days running without a rest. That is more than the plan " +
-                    "asked for, and the rest days are where the training lands."
+                warnings += "Four days running without a rest."
             }
         }
         return warnings
@@ -337,10 +334,7 @@ object WeekPlanner {
                 runDays = 3,
                 quality = 0,
                 strides = false,
-                note = {
-                    "Not enough behind you to plan from yet — three runs in four weeks is the " +
-                        "least this needs. Here is a week of easy running to build one on."
-                },
+                note = { "Not enough behind you to plan from yet. A week of easy running." },
             )
 
             (load.daysSinceLastRun ?: 0) >= 14 -> Budget(
@@ -349,9 +343,8 @@ object WeekPlanner {
                 quality = 0,
                 strides = false,
                 note = { total ->
-                    "You have not run in ${load.daysSinceLastRun} days, so this week comes back " +
-                        "at ${km(total)}, all easy — about sixty per cent of your usual. The " +
-                        "fitness is still there; the tendons are what need the fortnight back."
+                    "You have not run in ${load.daysSinceLastRun} days. Back at ${km(total)}, " +
+                        "all easy."
                 },
             )
 
@@ -361,9 +354,8 @@ object WeekPlanner {
                 quality = 0,
                 strides = false,
                 note = { total ->
-                    "Last week was ${times(load.ratio)} your four-week average. This one holds " +
-                        "level at ${km(total)} and stays easy — that ratio is the best predictor " +
-                        "of an injury anyone has found."
+                    "Last week was ${times(load.ratio)} your four-week average. Holding level " +
+                        "at ${km(total)}, all easy."
                 },
             )
 
@@ -373,9 +365,7 @@ object WeekPlanner {
                 quality = allowed,
                 strides = days >= 4,
                 note = { total ->
-                    "Three weeks of rising volume behind you, so this is a cutback: ${km(total)}, " +
-                        "about three quarters of last week. The hard days stay; the mileage is " +
-                        "what comes off."
+                    "Three rising weeks behind you, so a cutback: ${km(total)}. The hard days stay."
                 },
             )
 
@@ -391,9 +381,8 @@ object WeekPlanner {
                     quality = allowed,
                     strides = days >= 4 && allowed <= 1,
                     note = { total ->
-                        "Last week was ${km(load.acuteMeters)}, your four-week average " +
-                            "${km(load.chronicWeeklyMeters)}. This week is ${km(total)} — at most " +
-                            "ten per cent up on last week, and never past 1.3 times the average."
+                        "Last week ${km(load.acuteMeters)}, four-week average " +
+                            "${km(load.chronicWeeklyMeters)}. This week ${km(total)}."
                     },
                 )
             }
@@ -403,9 +392,7 @@ object WeekPlanner {
         return budget.copy(
             meters = budget.meters * taper,
             note = { total ->
-                "Race week is close, so the volume comes down to ${km(total)} — about " +
-                    "${percent(taper)} of normal — and the sharpness stays. Cutting both is what " +
-                    "makes a taper feel flat on the day."
+                "Tapering: ${km(total)}, about ${percent(taper)} of normal. The sharpness stays."
             },
         )
     }
@@ -526,9 +513,8 @@ object WeekPlanner {
                 val work = thresholdWork(budgetMeters, paces)
                 Workouts.tempo(
                     work, paces,
-                    from + "${pace(paces.thresholdSecPerKm)}/km at threshold. Ten per cent of a " +
-                        "${km(budgetMeters)} week is ${km(work)}, and twenty to forty minutes " +
-                        "is what makes it a tempo rather than a race.",
+                    from + "${pace(paces.thresholdSecPerKm)}/km at threshold. Ten per cent " +
+                        "of the week is ${km(work)}.",
                 )
             }
 
@@ -537,8 +523,7 @@ object WeekPlanner {
                 Workouts.cruiseIntervals(
                     work, paces,
                     from + "${pace(paces.thresholdSecPerKm)}/km. The same ${km(work)} of " +
-                        "threshold as a tempo, broken up — easier to hold the pace and harder " +
-                        "to drift under it.",
+                        "threshold as a tempo, broken up.",
                 )
             }
 
@@ -546,8 +531,8 @@ object WeekPlanner {
                 val work = min(budgetMeters * INTERVAL_SHARE, INTERVAL_CAP_M)
                 Workouts.intervals(
                     work, paces,
-                    from + "${pace(paces.intervalSecPerKm)}/km. Capped at eight per cent of the " +
-                        "week, so ${km(work)} hard — the reps are short because the pace is not.",
+                    from + "${pace(paces.intervalSecPerKm)}/km. Eight per cent of the week, " +
+                        "so ${km(work)} hard.",
                 )
             }
 
@@ -555,9 +540,8 @@ object WeekPlanner {
                 val work = min(budgetMeters * INTERVAL_SHARE, INTERVAL_CAP_M)
                 Workouts.hills(
                     work, paces,
-                    "Interval effort at a fraction of the impact: the hill sets the pace, so " +
-                        "run it hard and ignore the watch. ${km(work)} of climbing, the same " +
-                        "eight per cent cap as intervals.",
+                    "The hill sets the pace: run it hard and ignore the watch. " +
+                        "${km(work)} of climbing, interval effort at less of the impact.",
                 )
             }
 
@@ -566,7 +550,7 @@ object WeekPlanner {
                 Workouts.fartlek(
                     work, paces,
                     from + "about ${pace(paces.intervalSecPerKm)}/km for the quick minutes. " +
-                        "Unstructured on purpose — same eight per cent, less to think about.",
+                        "Unstructured on purpose.",
                 )
             }
 
@@ -574,9 +558,8 @@ object WeekPlanner {
                 val work = min(budgetMeters * REPETITION_SHARE, REPETITION_CAP_M)
                 Workouts.repetitions(
                     work, paces,
-                    from + "${pace(paces.repetitionSecPerKm)}/km. Five per cent of the week at " +
-                        "most, fully recovered between: this one is for how you run, not for " +
-                        "how hard you can breathe.",
+                    from + "${pace(paces.repetitionSecPerKm)}/km, fully recovered between. " +
+                        "Five per cent of the week at most.",
                 )
             }
 
@@ -584,8 +567,8 @@ object WeekPlanner {
                 val work = min(budgetMeters * MARATHON_SHARE, MARATHON_CAP_M)
                 Workouts.steady(
                     work, paces,
-                    from + "${pace(paces.marathonSecPerKm)}/km. ${km(work)} continuous, the " +
-                        "closest thing to a race rehearsal that is not a race.",
+                    from + "${pace(paces.marathonSecPerKm)}/km, ${km(work)} continuous. " +
+                        "Race rehearsal.",
                 )
             }
 
@@ -622,20 +605,19 @@ object WeekPlanner {
         val meters = minOf(byShare, byHistory, room).coerceAtLeast(MIN_LONG_M)
 
         val reason = if (byHistory < byShare && load.longestRunMeters > 0.0) {
-            "Your longest run in the last four weeks was ${km(load.longestRunMeters)}, so this " +
-                "one is ${km(meters)}. Ten per cent at a time is how a long run grows without " +
-                "costing you a fortnight."
+            "Your longest in four weeks was ${km(load.longestRunMeters)}, so this is " +
+                "${km(meters)}. A long run grows a tenth at a time."
         } else {
-            "${percent(share)} of a ${km(budget.meters)} week, which is ${km(meters)}. Run it " +
-                "at ${pace(paces.easySecPerKm.start)}–${pace(paces.easySecPerKm.endInclusive)}/km " +
-                "— the distance is the session, not the pace."
+            // Not "of a 44 km week": the budget is a ceiling and the plan lands under it,
+            // so quoting it here would disagree with the total in the week's own header.
+            "${percent(share)} of the week, which is ${km(meters)}. The distance is the " +
+                "session, not the pace."
         }
         return Workouts.longRun(meters, paces, reason)
     }
 
     private fun restReason(runDays: Int) =
-        "Rest. You run $runDays days a week, and the other ${7 - runDays} are when the " +
-            "training you did actually turns into fitness."
+        "Rest. The training lands on the days you do not run."
 
     /**
      * Paces for a runner the app cannot price yet.

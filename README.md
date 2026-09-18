@@ -23,7 +23,8 @@ network socket. Nothing it records can leave the device.
   one.
 - Suggests the next four weeks of training from the runs already recorded: named
   sessions, paces derived from your own best efforts, and volume that cannot ramp faster
-  than is safe. Hold a day to drag it elsewhere. Optionally counts back from a race date.
+  than is safe. Step between weeks with the arrows, hold a day to drag it elsewhere.
+  Optionally counts back from a race date.
 - Backs every run up to one file you choose, and puts one back.
 - Survives being killed mid-run: the track is in the database, and the app offers to
   finish or continue it on next launch.
@@ -188,6 +189,14 @@ Deterministic from a fixed seed, so a regeneration that changed nothing produces
 runs — it is generated and committed rather than built, so nothing else would notice if
 the generator were changed and not re-run.
 
+## Saying less
+
+Screens carry one line and a **?**. The app has reasons for what it does and they are
+worth reading once, but a paragraph the reader has already understood is noise the second
+time — and four of them push the control they came for below the fold. So each section of
+Settings, and the coach's week and paces, keep a sentence on screen and put the rest
+behind a question mark.
+
 ## Requirements
 
 - Android 12 (API 31) or newer. Built and tested against API 35.
@@ -304,7 +313,8 @@ cruise intervals, intervals, hill repeats, fartlek, strides and repetitions. Whi
 week gets rotates on the week number, so the plan varies without ever being random —
 the same history always produces the same week, which is what lets the tests assert one.
 
-**Four weeks are shown, not one.** Each week after the first is planned against a history
+**Four weeks are planned, one shown at a time.** Arrows step between them. Each week
+after the first is planned against a history
 that already contains the weeks before it, as though they had been run exactly as
 written, so the second week's ten per cent is ten per cent of the first week's plan. A
 block built without rolling the history forward would show four identical weeks and no

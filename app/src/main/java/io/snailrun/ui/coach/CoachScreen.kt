@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -33,6 +35,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -42,6 +45,8 @@ import io.snailrun.domain.coach.Races
 import io.snailrun.domain.coach.WeekPlan
 import io.snailrun.domain.coach.WorkoutStep
 import io.snailrun.domain.coach.WorkoutType
+import io.snailrun.R
+import io.snailrun.ui.components.HelpButton
 import io.snailrun.ui.components.SnailCard
 import io.snailrun.ui.format.RunFormat
 import io.snailrun.ui.theme.SnailType
@@ -65,16 +70,38 @@ private fun rangeformat() = DateTimeFormatter.ofPattern("d MMM", Locale.getDefau
  */
 private const val NBSP = ' '
 
+private val CoachHelp = listOf(
+    "Four weeks planned from the runs you have already done. Each week is built on the " +
+        "one before it, so the block climbs rather than repeating.",
+    "Hold a day to drag it somewhere else; the days it passes shift along by one. Only " +
+        "the rearrangement is remembered — the plan itself is worked out afresh every " +
+        "time, from your runs.",
+    "Volume rises at most a tenth on last week and never past 1.3 times your four-week " +
+        "average. The long run cannot grow more than a tenth either. Tap a day for why " +
+        "it is the length it is.",
+)
+
+private val PacesHelp = listOf(
+    "Paces come from the fastest stretches inside your own runs, put through Daniels " +
+        "and Gilbert's equations. Nothing is guessed and nothing is looked up.",
+    "Only efforts of 5 km and longer are trusted. A fast kilometre inside an easy run " +
+        "is usually a surge, and read as a time trial it would make every pace too fast.",
+    "So until there is a recent long effort, the coach writes easy and threshold work " +
+        "and refuses to price an interval session at all.",
+)
+
 @Composable
 fun CoachScreen(
     state: CoachUiState,
     onExpand: (LocalDate) -> Unit,
     onMove: (LocalDate, Int, Int) -> Unit,
     onResetWeek: (LocalDate) -> Unit,
+    onShowWeek: (Int) -> Unit,
     today: LocalDate,
     modifier: Modifier = Modifier,
 ) {
-    if (!state.loaded || state.weeks.isEmpty()) {
+    val plan = state.week
+    if (!state.loaded || plan == null) {
         Box(modifier.fillMaxSize())
         return
     }
@@ -90,41 +117,50 @@ fun CoachScreen(
         verticalArrangement = Arrangement.spacedBy(Spacing.m),
     ) {
         item {
-            Column {
-                Text(text = "Coach", style = MaterialTheme.typography.headlineMedium)
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.s),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    text = "Hold a day to drag it. The days it passes shift along.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = Spacing.xs, bottom = Spacing.s),
+                    text = "Coach",
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier.weight(1f),
                 )
+                HelpButton(title = "Coach", body = CoachHelp)
             }
+        }
+
+        item {
+            WeekBar(
+                plan = plan,
+                index = state.weekIndex,
+                count = state.weeks.size,
+                today = today,
+                onShowWeek = onShowWeek,
+            )
         }
 
         if (state.goal != null) {
-            item { RaceCard(state.weeks.first(), state) }
+            item { RaceCard(plan, state) }
+        }
+
+        item(key = "days-${plan.weekStart}") {
+            DraggableWeek(
+                plan = plan,
+                today = today,
+                expanded = state.expanded,
+                onExpand = onExpand,
+                onMove = { from, to -> onMove(plan.weekStart, from, to) },
+            )
+        }
+
+        if (plan.order != null) {
+            item {
+                TextButton(onClick = { onResetWeek(plan.weekStart) }) { Text("Put the week back") }
+            }
         }
 
         item { FitnessCard(state) }
-
-        state.weeks.forEach { plan ->
-            item(key = "head-${plan.weekStart}") {
-                WeekHeader(
-                    plan = plan,
-                    today = today,
-                    onReset = { onResetWeek(plan.weekStart) },
-                )
-            }
-            item(key = "days-${plan.weekStart}") {
-                DraggableWeek(
-                    plan = plan,
-                    today = today,
-                    expanded = state.expanded,
-                    onExpand = onExpand,
-                    onMove = { from, to -> onMove(plan.weekStart, from, to) },
-                )
-            }
-        }
     }
 }
 
@@ -260,8 +296,21 @@ private fun targetIndex(
 
 // ---- cards ---------------------------------------------------------------------------
 
+/**
+ * The week on screen, with an arrow either side of it.
+ *
+ * One week at a time rather than four down a scroll. Four weeks of seven cards is
+ * twenty-eight things to scroll past to reach the one you were looking for, and the week
+ * you actually care about is nearly always the one you are in.
+ */
 @Composable
-private fun WeekHeader(plan: WeekPlan, today: LocalDate, onReset: () -> Unit) {
+private fun WeekBar(
+    plan: WeekPlan,
+    index: Int,
+    count: Int,
+    today: LocalDate,
+    onShowWeek: (Int) -> Unit,
+) {
     val current = !today.isBefore(plan.weekStart) && today.isBefore(plan.weekStart.plusDays(7))
     SnailCard(
         modifier = Modifier.fillMaxWidth(),
@@ -271,24 +320,45 @@ private fun WeekHeader(plan: WeekPlan, today: LocalDate, onReset: () -> Unit) {
             MaterialTheme.colorScheme.surfaceContainer
         },
     ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Arrow(
+                back = true,
+                enabled = index > 0,
+                onClick = { onShowWeek(-1) },
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = if (current) "This week" else "In $index weeks",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    text = weekRange(plan.weekStart),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Arrow(
+                back = false,
+                enabled = index < count - 1,
+                onClick = { onShowWeek(1) },
+            )
+        }
+
+        Spacer(Modifier.height(Spacing.m))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Bottom,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = if (current) "This week" else weekRange(plan.weekStart),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                if (current) {
-                    Text(
-                        text = weekRange(plan.weekStart),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
+            Text(
+                text = plan.note,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f).padding(end = Spacing.s),
+            )
             Text(
                 text = km(plan.plannedMeters),
                 style = SnailType.metricSmall,
@@ -296,13 +366,6 @@ private fun WeekHeader(plan: WeekPlan, today: LocalDate, onReset: () -> Unit) {
                 softWrap = false,
             )
         }
-
-        Spacer(Modifier.height(Spacing.m))
-        Text(
-            text = plan.note,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
 
         plan.conflicts.forEach { warning ->
             Spacer(Modifier.height(Spacing.s))
@@ -312,12 +375,23 @@ private fun WeekHeader(plan: WeekPlan, today: LocalDate, onReset: () -> Unit) {
                 color = MaterialTheme.colorScheme.error,
             )
         }
+    }
+}
 
-        if (plan.order != null) {
-            TextButton(onClick = onReset, modifier = Modifier.padding(top = Spacing.xs)) {
-                Text("Put the week back")
-            }
-        }
+/** One arrow, drawn once and mirrored for the other direction. */
+@Composable
+private fun Arrow(back: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    IconButton(onClick = onClick, enabled = enabled) {
+        Icon(
+            painter = painterResource(R.drawable.ic_back),
+            contentDescription = if (back) "Previous week" else "Next week",
+            tint = if (enabled) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+            },
+            modifier = if (back) Modifier else Modifier.graphicsLayer { scaleX = -1f },
+        )
     }
 }
 
@@ -452,22 +526,30 @@ private fun FitnessCard(state: CoachUiState) {
     val fitness = state.fitness
     SnailCard(modifier = Modifier.fillMaxWidth()) {
         if (fitness == null) {
-            Text("No fitness estimate yet", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(Spacing.s))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "No fitness estimate yet",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                HelpButton(title = "Paces", body = PacesHelp)
+            }
             Text(
-                text = "Paces come from the fastest stretches inside your own runs. Until " +
-                    "there are some from the last ten weeks, these weeks are easy running " +
-                    "only — which is where they would start anyway.",
+                text = "Easy running only until you have run a hard five kilometres.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             return@SnailCard
         }
 
-        Text(
-            text = "Fitness ${fitness.vdot.roundToInt()} VDOT",
-            style = MaterialTheme.typography.titleMedium,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Fitness ${fitness.vdot.roundToInt()} VDOT",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+            )
+            HelpButton(title = "Paces", body = PacesHelp)
+        }
         Text(
             text = "From your ${distanceName(fitness.fromDistanceM)} on " +
                 dayformat().format(fitness.fromDate),
@@ -490,9 +572,7 @@ private fun FitnessCard(state: CoachUiState) {
         } else {
             Spacer(Modifier.height(Spacing.s))
             Text(
-                text = "Your fastest recent efforts are all under 5 km, which is too short to " +
-                    "price interval pace from without overstating it. Run five kilometres hard " +
-                    "and the rest unlocks.",
+                text = "Interval and repetition pace need a hard 5 km to price them from.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
