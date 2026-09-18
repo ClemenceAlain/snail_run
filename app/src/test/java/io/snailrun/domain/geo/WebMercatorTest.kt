@@ -114,4 +114,72 @@ class WebMercatorTest {
         assertEquals(5637, WebMercator.toTmsRow(WebMercator.toTmsRow(5637, 14), 14))
         assertEquals(0, WebMercator.toTmsRow((1 shl 3) - 1, 3))
     }
+
+    @Test
+    fun `a tile range reports the ground it covers`() {
+        // One tile at zoom 0 is the whole world, so the bounds are the whole world.
+        val whole = WebMercator.boundsOf(TileRange(zoom = 0, minX = 0, maxX = 0, minY = 0, maxY = 0))
+
+        assertEquals(-180.0, whole.minLon, 1e-9)
+        assertEquals(180.0, whole.maxLon, 1e-9)
+        assertEquals(-WebMercator.MAX_LATITUDE, whole.minLat, 1e-6)
+        assertEquals(WebMercator.MAX_LATITUDE, whole.maxLat, 1e-6)
+    }
+
+    @Test
+    fun `a tile's bounds contain the place it holds`() {
+        val zoom = 14
+        val x = (WebMercator.worldX(paris.lon, zoom) / 256).toInt()
+        val y = (WebMercator.worldY(paris.lat, zoom) / 256).toInt()
+        val bounds = WebMercator.boundsOf(TileRange(zoom, x, x, y, y))
+
+        assertTrue(paris.lat in bounds.minLat..bounds.maxLat)
+        assertTrue(paris.lon in bounds.minLon..bounds.maxLon)
+    }
+
+    @Test
+    fun `the far edge of a range is the far edge of its last tile`() {
+        val one = WebMercator.boundsOf(TileRange(zoom = 1, minX = 0, maxX = 0, minY = 0, maxY = 0))
+        val both = WebMercator.boundsOf(TileRange(zoom = 1, minX = 0, maxX = 1, minY = 0, maxY = 0))
+
+        assertEquals(0.0, one.maxLon, 1e-9)
+        assertEquals(180.0, both.maxLon, 1e-9)
+    }
+
+    @Test
+    fun `areas that touch overlap and areas that miss do not`() {
+        val here = LatLonBounds(48.85, 48.86, 2.35, 2.36)
+        val overlapping = LatLonBounds(48.855, 48.87, 2.355, 2.37)
+        val elsewhere = LatLonBounds(51.50, 51.51, -0.13, -0.12)
+
+        assertTrue(here.intersects(overlapping))
+        assertTrue(overlapping.intersects(here))
+        assertTrue(!here.intersects(elsewhere))
+    }
+
+    @Test
+    fun `the integer and fractional projections are the same projection`() {
+        // They are two entry points to one formula, and a drift between them would put
+        // the tiles at one place and the trace at another.
+        for (zoom in 0..20) {
+            assertEquals(
+                WebMercator.worldY(paris.lat, zoom),
+                WebMercator.worldY(paris.lat, zoom.toDouble()),
+                1e-9,
+            )
+            assertEquals(
+                WebMercator.worldX(paris.lon, zoom),
+                WebMercator.worldX(paris.lon, zoom.toDouble()),
+                1e-9,
+            )
+        }
+    }
+
+    @Test
+    fun `world pixels scale with zoom, which is what lets a camera precompute them`() {
+        val deep = WebMercator.worldX(paris.lon, 22.0)
+        val shallow = WebMercator.worldX(paris.lon, 16.4)
+
+        assertEquals(shallow, deep * Math.pow(2.0, 16.4 - 22.0), 1e-6)
+    }
 }

@@ -50,6 +50,13 @@ android {
         }
     }
 
+    androidResources {
+        // The demo map has to be readable as a file descriptor, and a compressed asset
+        // is not one. It costs nothing: the file is a SQLite database full of PNGs, and
+        // deflate has nothing left to take off it.
+        noCompress += "mbtiles"
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true

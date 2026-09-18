@@ -26,8 +26,11 @@ enum class TopLevel(val route: String, val label: String, @DrawableRes val icon:
 }
 
 const val ROUTE_RUN_DETAIL = "run/{runId}"
+const val ROUTE_RUN_MAP = "run/{runId}/map"
 
 fun runDetailRoute(runId: Long) = "run/$runId"
+
+fun runMapRoute(runId: Long) = "run/$runId/map"
 
 @Composable
 fun SnailRunScaffold(

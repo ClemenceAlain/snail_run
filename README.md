@@ -17,7 +17,9 @@ network socket. Nothing it records can leave the device.
 - Lists past runs as a list, a calendar or a progress chart, and shows one with its
   trace, its pace-and-elevation graph and any records. Drag across the graph for the
   average over any stretch.
-- Draws the trace on an offline map, if you put one on the phone.
+- Draws the trace on an offline map, and opens it full screen to drag, pinch and
+  double-tap around. A small demo map is in the APK, so that works before you supply
+  one.
 - Backs every run up to one file you choose, and puts one back.
 - Survives being killed mid-run: the track is in the database, and the app offers to
   finish or continue it on next launch.
@@ -34,6 +36,9 @@ Fix timestamps stay one second apart whatever speed you pick, because every metr
 derived from them. Only the wall clock between fixes is compressed: at 30x an hour of
 running arrives in two minutes, and the numbers, the splits, the voice and the trace are
 the ones an hour of real running would have produced.
+
+Demo runs are drawn on the map in the APK, which covers exactly the ground the synthetic
+trace goes over. See **The map in the APK** below.
 
 A demo run is recorded like any other — it lands in the database and in your history —
 so it is tagged `DEMO`, badged in the list, announced in red on the record screen while
@@ -70,7 +75,7 @@ The app then restarts itself. The database instance is captured by the recorder,
 exporter and three view models; relaunching into a clean process is a far smaller thing
 than making all of that swappable for an operation run perhaps once a year.
 
-**Not in the backup:** settings, and the map file. Android ties the GPX export folder
+**Not in the backup:** settings, and the map file you picked. Android ties the GPX export folder
 grant and the picked map file to the installation, so neither would survive a reinstall
 even if the backup carried them — and the map file is hundreds of megabytes you still
 have the original of. A GPX export is not a restore path either: it is a copy for other
@@ -78,17 +83,75 @@ programs, and nothing reads it back.
 
 ## The map
 
-Settings → Map. There is no map tile in the app and no way to fetch one, so the map is a
-file you put on the phone: an **MBTiles** raster extract of wherever you run. Pick it
-once and it is copied into the app's own storage — SQLite needs a path, and a picked file
-can be moved or deleted out from under a run.
+Settings → Map. There is no way to fetch a tile — no `INTERNET` permission — so the map
+is a file you put on the phone: an **MBTiles** raster extract of wherever you run. Pick
+it once and it is copied into the app's own storage, because SQLite needs a path and a
+picked file can be moved or deleted out from under a run.
 
 - Zoom levels are read from the tiles themselves, not from what the file claims, because
-  hand-cut extracts routinely claim wrong.
+  hand-cut extracts routinely claim wrong. So is the ground it covers.
 - A run outside what the file covers still draws, as a plain trace over blank.
 - With a map present the trace is projected in Web Mercator rather than the app's own
   equirectangular projection. Tiles are cut to Mercator by definition, and mixing the two
   puts the trace visibly beside the road it was run on.
+
+### Full screen
+
+Tapping the trace on a run's screen opens it full screen, where it can be dragged,
+pinched, double-tapped and zoomed with the buttons. It works with no map file at all:
+the camera projects the trace whether or not there are tiles under it, so looking closely
+at one corner of a run is not something you have to supply hundreds of megabytes to be
+allowed to do.
+
+The card on the run's own screen stays fixed and fitted to the run. The two have
+different jobs — one answers *what shape was it* at a glance, the other is for looking
+closely — and making the card movable would mean it jumped whenever a thumb brushed past.
+
+A few things behind it:
+
+- **The camera is a centre and a continuous zoom**, not a fitted viewport. A viewport is
+  world pixels at one integer zoom, so a pinch would have to rewrite its origin and its
+  scale together and keep them consistent; a centre and a zoom survive the gesture
+  unchanged in meaning. `domain/geo/MapCamera.kt`, pure and tested.
+- **Tiles exist only at integer zooms**, so the integer part of the zoom picks the level
+  and the fraction becomes a scale factor. Past the deepest level the file holds, the
+  level stops and the scale keeps going.
+- **A missing tile is drawn from its nearest loaded ancestor**, enlarged, up to three
+  levels up. A blurry map that pans is worth more than a sharp one that flashes white
+  every time it is touched.
+- **Tiles are keyed on the tile range, not the viewport.** A viewport changes on every
+  frame of a drag and a range changes only at a tile boundary; keying the load on the
+  viewport restarts it continuously and never finishes one.
+- **The trace's world coordinates are computed once** at a reference zoom and scaled per
+  frame. Projecting a latitude costs an `asinh` and a `tan`, and Mercator scales linearly
+  with zoom, so a dragged map need not pay it for every point on every frame.
+
+### The map in the APK
+
+`app/src/main/assets/demo.mbtiles` is a small raster map covering the ground the demo run
+is run on, so demo mode shows a trace on a map before you have supplied one.
+
+It is **drawn, not cut from anyone else's tiles**. A map we drew carries no licence, no
+attribution requirement and no tile-server usage policy, and the demo run is synthetic
+anyway. It is deliberately **not a map of Paris**: it is a plausible invented town over
+the same ground — a rotated street grid, two avenues across it, a river, three parks and
+buildings close in.
+
+It is used only where it has tiles. A map you chose applies to every run you have, holes
+and all, because you chose it; the bundled one is handed to the renderer with its
+coverage attached, so a real run anywhere else is drawn exactly as it was before the
+bundled map existed.
+
+Regenerate it with:
+
+```bash
+python3 tools/make-demo-map.py     # needs Pillow
+```
+
+Deterministic from a fixed seed, so a regeneration that changed nothing produces no diff.
+`DemoBasemapTest` opens the committed file and checks it still covers where `DemoRoute`
+runs — it is generated and committed rather than built, so nothing else would notice if
+the generator were changed and not re-run.
 
 ## Requirements
 

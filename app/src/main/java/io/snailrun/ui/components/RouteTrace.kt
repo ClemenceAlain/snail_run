@@ -4,46 +4,35 @@ import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.FilterQuality
-import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathMeasure
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
 import io.snailrun.domain.geo.LatLonBounds
-import io.snailrun.domain.geo.MapViewport
-import io.snailrun.domain.geo.Point2D
+import io.snailrun.domain.geo.MapCamera
 import io.snailrun.domain.geo.Projection
 import io.snailrun.domain.geo.Simplify
 import io.snailrun.domain.geo.WebMercator
 import io.snailrun.domain.model.LatLon
-import kotlin.math.roundToInt
 import io.snailrun.ui.theme.SnailTheme
-
-/** Tiles to draw under a trace, and the zoom levels the file actually holds. */
-data class BasemapLayer(
-    val minZoom: Int,
-    val maxZoom: Int,
-    val tile: suspend (zoom: Int, x: Int, y: Int) -> ImageBitmap?,
-)
+import kotlin.math.pow
 
 /**
  * Draws a run from its own GPS points, over a basemap when the phone has one.
@@ -56,6 +45,9 @@ data class BasemapLayer(
  * With a basemap the projection switches to Web Mercator, because that is what tiles are
  * cut to. Keeping the app's own equirectangular projection here would put the trace
  * visibly beside the road it was run on.
+ *
+ * This one is fixed to the run's own bounds and does not move. [RouteMapScreen] is the
+ * same trace under a camera you can drag.
  */
 @Composable
 fun RouteTrace(
@@ -72,9 +64,8 @@ fun RouteTrace(
     val startColor = MaterialTheme.colorScheme.primary
     val endColor = MaterialTheme.colorScheme.secondary
 
-    val simplified = remember(segments, maxPoints) {
-        segments.filter { it.size >= 2 }.map { Simplify.toAtMost(it, maxPoints) }
-    }
+    val simplified = rememberSimplified(segments, maxPoints)
+    val bounds = remember(simplified) { LatLonBounds.of(simplified.flatten()) }
 
     var played by remember { mutableStateOf(!animateOnFirstShow) }
     LaunchedEffect(simplified) { played = true }
@@ -88,113 +79,114 @@ fun RouteTrace(
     BoxWithConstraints(modifier = modifier) {
         val widthPx = constraints.maxWidth.toFloat()
         val heightPx = constraints.maxHeight.toFloat()
-        val paddingPx = with(androidx.compose.ui.platform.LocalDensity.current) { padding.toPx() }
+        val paddingPx = with(LocalDensity.current) { padding.toPx() }
+        val strokePx = with(LocalDensity.current) { strokeWidth.toPx() }
 
-        val viewport = remember(simplified, basemap, widthPx, heightPx) {
-            if (basemap == null || simplified.isEmpty()) return@remember null
-            LatLonBounds.of(simplified.flatten())?.let { bounds ->
-                WebMercator.fit(
-                    bounds = bounds,
-                    widthPx = widthPx,
-                    heightPx = heightPx,
-                    paddingPx = paddingPx,
-                    minZoom = basemap.minZoom,
-                    maxZoom = basemap.maxZoom,
-                )
-            }
+        val layer = basemap?.takeIf { it.covers(bounds) }
+
+        val viewport = remember(bounds, layer, widthPx, heightPx, paddingPx) {
+            if (layer == null || bounds == null) return@remember null
+            WebMercator.fit(
+                bounds = bounds,
+                widthPx = widthPx,
+                heightPx = heightPx,
+                paddingPx = paddingPx,
+                minZoom = layer.minZoom,
+                maxZoom = layer.maxZoom,
+            )
         }
 
-        val tiles = remember(viewport) { mutableStateMapOf<String, ImageBitmap>() }
-        LaunchedEffect(viewport) {
-            val view = viewport ?: return@LaunchedEffect
-            val layer = basemap ?: return@LaunchedEffect
-            val range = WebMercator.tilesFor(view, widthPx, heightPx)
-            // Loaded one at a time and published as they arrive, so a big file draws
-            // progressively instead of holding a blank box until the last tile decodes.
-            for (x in range.minX..range.maxX) {
-                for (y in range.minY..range.maxY) {
-                    layer.tile(range.zoom, x, y)?.let { tiles["$x/$y"] = it }
-                }
-            }
+        val range = remember(viewport, widthPx, heightPx) {
+            viewport?.let { WebMercator.tilesFor(it, widthPx, heightPx) }
         }
+        val tiles = rememberBasemapTiles(layer, range)
 
         Canvas(modifier = Modifier.fillMaxSize()) {
             if (simplified.isEmpty()) return@Canvas
 
-            viewport?.let { drawTiles(it, tiles, size.width, size.height) }
+            viewport?.let { drawBasemap(it, tiles, size.width, size.height) }
 
             // One projection over every segment, so they share a frame of reference.
             val flattened = simplified.flatten()
             val projected = viewport?.let { view ->
                 flattened.map { point ->
                     val (x, y) = view.project(point)
-                    Point2D(x, y)
+                    Offset(x, y)
                 }
-            } ?: Projection.fit(flattened, size.width, size.height, padding.toPx())
+            } ?: Projection.fit(flattened, size.width, size.height, paddingPx)
+                .map { Offset(it.x, it.y) }
 
-            var index = 0
-            val strokePx = strokeWidth.toPx()
-            var firstPoint: Offset? = null
-            var lastPoint: Offset? = null
-
-            simplified.forEach { segment ->
-                val path = Path()
-                segment.indices.forEach { i ->
-                    val point = projected[index + i]
-                    val offset = Offset(point.x, point.y)
-                    if (i == 0) path.moveTo(offset.x, offset.y) else path.lineTo(offset.x, offset.y)
-                    if (firstPoint == null) firstPoint = offset
-                    lastPoint = offset
-                }
-                index += segment.size
-
-                val drawn = if (progress >= 1f) path else path.trimmed(progress)
-                drawPath(
-                    path = drawn,
-                    color = traceColor,
-                    style = Stroke(
-                        width = strokePx,
-                        cap = StrokeCap.Round,
-                        join = StrokeJoin.Round,
-                    ),
-                )
-            }
-
-            if (showEndpoints && progress >= 1f) {
-                firstPoint?.let { drawCircle(startColor, radius = strokePx * 1.4f, center = it) }
-                lastPoint?.let { drawCircle(endColor, radius = strokePx * 1.4f, center = it) }
-            }
+            drawTrace(
+                segments = simplified,
+                projected = projected,
+                traceColor = traceColor,
+                startColor = startColor,
+                endColor = endColor,
+                strokePx = strokePx,
+                progress = progress,
+                showEndpoints = showEndpoints,
+            )
         }
     }
 }
 
 /**
- * The map under the trace. Tiles that have not arrived are simply not drawn: a gap that
- * fills in a moment later reads better than a spinner over a route.
+ * The points actually drawn. Thinning them is what keeps an hour's run — three and a
+ * half thousand fixes — from being a path the rasteriser walks on every frame of a drag.
  */
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawTiles(
-    viewport: MapViewport,
-    tiles: Map<String, ImageBitmap>,
-    widthPx: Float,
-    heightPx: Float,
+@Composable
+internal fun rememberSimplified(
+    segments: List<List<LatLon>>,
+    maxPoints: Int,
+): List<List<LatLon>> = remember(segments, maxPoints) {
+    segments.filter { it.size >= 2 }.map { Simplify.toAtMost(it, maxPoints) }
+}
+
+/**
+ * The run itself, over whatever is beneath it.
+ *
+ * [projected] is every point of every segment, already flattened and in the same order,
+ * so one projection pass serves all of them and the segments cannot drift apart.
+ */
+internal fun DrawScope.drawTrace(
+    segments: List<List<LatLon>>,
+    projected: List<Offset>,
+    traceColor: Color,
+    startColor: Color,
+    endColor: Color,
+    strokePx: Float,
+    progress: Float,
+    showEndpoints: Boolean,
 ) {
-    val range = WebMercator.tilesFor(viewport, widthPx, heightPx)
-    val drawn = viewport.drawnTileSize.roundToInt()
-    for (x in range.minX..range.maxX) {
-        for (y in range.minY..range.maxY) {
-            val bitmap = tiles["$x/$y"] ?: continue
-            val (left, top) = viewport.tileTopLeft(x, y)
-            drawImage(
-                image = bitmap,
-                srcOffset = IntOffset.Zero,
-                srcSize = IntSize(bitmap.width, bitmap.height),
-                dstOffset = IntOffset(left.roundToInt(), top.roundToInt()),
-                dstSize = IntSize(drawn, drawn),
-                // Tiles are upscaled by at most two, and bilinear beats the blocky
-                // nearest-neighbour default at that ratio.
-                filterQuality = FilterQuality.Low,
-            )
+    var index = 0
+    var firstPoint: Offset? = null
+    var lastPoint: Offset? = null
+
+    segments.forEach { segment ->
+        val path = Path()
+        segment.indices.forEach { i ->
+            val offset = projected[index + i]
+            if (i == 0) path.moveTo(offset.x, offset.y) else path.lineTo(offset.x, offset.y)
+            if (firstPoint == null) firstPoint = offset
+            lastPoint = offset
         }
+        index += segment.size
+
+        val drawn = if (progress >= 1f) path else path.trimmed(progress)
+        drawPath(
+            path = drawn,
+            color = traceColor,
+            style = Stroke(
+                width = strokePx,
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round,
+            ),
+        )
+    }
+
+    if (showEndpoints && progress >= 1f) {
+        firstPoint?.let { drawCircle(startColor, radius = strokePx * 1.4f, center = it) }
+        lastPoint?.let { drawCircle(endColor, radius = strokePx * 1.4f, center = it) }
     }
 }
 
@@ -203,4 +195,39 @@ private fun Path.trimmed(fraction: Float): Path {
     val destination = Path()
     measure.getSegment(0f, measure.length * fraction, destination, true)
     return destination
+}
+
+/**
+ * The run's points in world pixels, held once and scaled per frame.
+ *
+ * Projecting latitude costs an `asinh` and a `tan`, and a dragged map would pay it for
+ * every point on every frame. Web Mercator scales linearly with zoom, though, so the
+ * expensive part can be done once at a reference zoom and every later frame is a
+ * multiply and a subtract.
+ */
+internal class TraceProjector(points: List<LatLon>) {
+
+    private val worldX = DoubleArray(points.size) {
+        WebMercator.worldX(points[it].lon, REFERENCE_ZOOM)
+    }
+    private val worldY = DoubleArray(points.size) {
+        WebMercator.worldY(points[it].lat, REFERENCE_ZOOM)
+    }
+
+    fun project(camera: MapCamera, widthPx: Float, heightPx: Float): List<Offset> {
+        val factor = 2.0.pow(camera.zoom - REFERENCE_ZOOM)
+        val originX = WebMercator.worldX(camera.centerLon, camera.zoom) - widthPx / 2.0
+        val originY = WebMercator.worldY(camera.centerLat, camera.zoom) - heightPx / 2.0
+        return List(worldX.size) { i ->
+            Offset(
+                (worldX[i] * factor - originX).toFloat(),
+                (worldY[i] * factor - originY).toFloat(),
+            )
+        }
+    }
+
+    private companion object {
+        /** Deep enough that the rounding never shows, shallow enough to stay exact. */
+        const val REFERENCE_ZOOM = 22.0
+    }
 }

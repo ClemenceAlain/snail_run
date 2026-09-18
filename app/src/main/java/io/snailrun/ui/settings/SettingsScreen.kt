@@ -188,7 +188,8 @@ fun SettingsScreen(
                 text = "A map file lives on the phone, like everything else here. Put an " +
                     "MBTiles extract of where you run on the device and pick it once; " +
                     "your runs are then drawn on it. Runs outside what it covers still " +
-                    "draw as a plain trace.",
+                    "draw as a plain trace. Until you pick one, demo runs are drawn on " +
+                    "the small invented map the app ships with.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

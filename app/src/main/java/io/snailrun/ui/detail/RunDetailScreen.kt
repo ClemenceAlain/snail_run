@@ -1,21 +1,30 @@
 package io.snailrun.ui.detail
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.dp
+import io.snailrun.R
 import io.snailrun.data.db.RunEntity
 import io.snailrun.domain.analysis.ProfileSample
 import io.snailrun.domain.analysis.ProfileSelection
@@ -53,6 +62,7 @@ fun RunDetailScreen(
     state: RunDetailUiState,
     onSelect: (Double, Double) -> Unit,
     onClearSelection: () -> Unit,
+    onOpenMap: () -> Unit,
     modifier: Modifier = Modifier,
     basemap: BasemapLayer? = null,
 ) {
@@ -82,15 +92,31 @@ fun RunDetailScreen(
 
         if (state.segments.isNotEmpty()) {
             item {
-                RouteTrace(
-                    segments = state.segments,
-                    basemap = basemap,
+                // The card is the way in to the full map. A trace this size answers
+                // "what shape was it"; anything closer than that needs the whole screen.
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(16f / 10f)
                         .clip(MaterialTheme.shapes.medium)
-                        .background(MaterialTheme.colorScheme.surfaceContainerLow),
-                )
+                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                        .clickable(onClickLabel = "Open the map") { onOpenMap() },
+                ) {
+                    RouteTrace(
+                        segments = state.segments,
+                        basemap = basemap,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    Icon(
+                        painter = painterResource(R.drawable.ic_fullscreen),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(Spacing.s)
+                            .size(20.dp),
+                    )
+                }
                 Spacer(Modifier.height(Spacing.xxl))
             }
         }

@@ -3,3 +3,4 @@
 *.jar binary
 *.ttf binary
 *.apk binary
+*.mbtiles binary

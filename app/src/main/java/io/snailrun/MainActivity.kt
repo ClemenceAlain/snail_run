@@ -50,13 +50,17 @@ import io.snailrun.ui.components.BasemapLayer
 import io.snailrun.ui.detail.RunDetailActions
 import io.snailrun.ui.detail.RunDetailScreen
 import io.snailrun.ui.detail.RunDetailTopBar
+import io.snailrun.ui.detail.RunMapTopBar
 import io.snailrun.ui.detail.RunDetailViewModel
 import io.snailrun.ui.history.HistoryScreen
 import io.snailrun.ui.history.HistoryViewModel
+import io.snailrun.ui.map.RouteMapScreen
 import io.snailrun.ui.nav.ROUTE_RUN_DETAIL
+import io.snailrun.ui.nav.ROUTE_RUN_MAP
 import io.snailrun.ui.nav.SnailRunScaffold
 import io.snailrun.ui.nav.TopLevel
 import io.snailrun.ui.nav.runDetailRoute
+import io.snailrun.ui.nav.runMapRoute
 import io.snailrun.ui.record.RecordScreen
 import io.snailrun.ui.record.RecordViewModel
 import io.snailrun.ui.settings.SettingsActions
@@ -102,7 +106,18 @@ class MainActivity : ComponentActivity() {
                             arguments = listOf(navArgument("runId") { type = NavType.LongType }),
                         ) { entry ->
                             val runId = entry.arguments?.getLong("runId") ?: return@composable
-                            RunDetailRoute(runId = runId, onBack = { navController.popBackStack() })
+                            RunDetailRoute(
+                                runId = runId,
+                                onBack = { navController.popBackStack() },
+                                onOpenMap = { navController.navigate(runMapRoute(runId)) },
+                            )
+                        }
+                        composable(
+                            route = ROUTE_RUN_MAP,
+                            arguments = listOf(navArgument("runId") { type = NavType.LongType }),
+                        ) { entry ->
+                            val runId = entry.arguments?.getLong("runId") ?: return@composable
+                            RunMapRoute(runId = runId, onBack = { navController.popBackStack() })
                         }
                     }
                 }
@@ -200,7 +215,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun RunDetailRoute(runId: Long, onBack: () -> Unit) {
+    private fun RunDetailRoute(runId: Long, onBack: () -> Unit, onOpenMap: () -> Unit) {
         val viewModel: RunDetailViewModel =
             viewModel(factory = RunDetailViewModel.Factory(container))
         LaunchedEffect(runId) { viewModel.load(runId) }
@@ -244,6 +259,7 @@ class MainActivity : ComponentActivity() {
                 state = state,
                 onSelect = viewModel::select,
                 onClearSelection = viewModel::clearSelection,
+                onOpenMap = onOpenMap,
                 modifier = Modifier.padding(insets),
                 basemap = basemapLayer(),
             )
@@ -251,27 +267,64 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * The tile layer, or null when the phone has no map file. Read once per composition
-     * rather than held: with no file there is nothing to open, and the trace draws
-     * exactly as it did before basemaps existed.
+     * The run on a full screen.
+     *
+     * It loads the run again rather than being handed the one the detail screen already
+     * has. A map is reached from a list as often as from a run, the reload is one query
+     * against a local database, and the alternative is a piece of shared state that has
+     * to be right across process death.
+     */
+    @Composable
+    private fun RunMapRoute(runId: Long, onBack: () -> Unit) {
+        val viewModel: RunDetailViewModel =
+            viewModel(factory = RunDetailViewModel.Factory(container))
+        LaunchedEffect(runId) { viewModel.load(runId) }
+        val state by viewModel.state.collectAsStateWithLifecycle()
+
+        Scaffold(
+            topBar = { RunMapTopBar(title = state.run?.title ?: "Map", onBack = onBack) },
+        ) { insets ->
+            RouteMapScreen(
+                segments = state.segments,
+                modifier = Modifier.padding(insets),
+                basemap = basemapLayer(),
+            )
+        }
+    }
+
+    /**
+     * The tile layer to draw runs on: the map the user picked, or the demo map the app
+     * ships with when they have not picked one.
+     *
+     * The two are not handed over on the same terms. A map the user chose applies to
+     * every run they have, holes and all — they chose it. The bundled one covers one
+     * kilometre of invented streets, so it is handed over with its coverage attached and
+     * a run anywhere else is drawn as it always was, over blank.
      */
     @Composable
     private fun basemapLayer(): BasemapLayer? {
         val store = container.basemapStore
-        val info by produceState<io.snailrun.data.basemap.BasemapInfo?>(null) {
-            value = store.info()
+        val active by produceState<io.snailrun.data.basemap.ActiveBasemap?>(null) {
+            value = store.active()
         }
-        val current = info ?: return null
+        val current = active ?: return null
         return remember(current) {
             BasemapLayer(
-                minZoom = current.minZoom,
-                maxZoom = current.maxZoom,
+                minZoom = current.info.minZoom,
+                maxZoom = current.info.maxZoom,
                 tile = { zoom, x, y -> store.tile(zoom, x, y) },
+                coverage = current.info.coverage.takeIf { current.bundled },
+                attribution = "Demo map — an invented town, not a real place."
+                    .takeIf { current.bundled },
             )
         }
     }
 
     private fun suggestedFileName(runId: Long) = "snail-run-$runId.gpx"
+
+    /** Whole megabytes once there are any, so a small map does not report itself as 0 MB. */
+    private fun formatFileSize(bytes: Long): String =
+        if (bytes >= 1_000_000) "${bytes / 1_000_000} MB" else "${bytes / 1_000} KB"
 
     @Composable
     private fun SettingsRoute() {
@@ -301,14 +354,19 @@ class MainActivity : ComponentActivity() {
 
         var basemapStatus by remember { mutableStateOf("No map file yet.") }
         LaunchedEffect(settings.basemapUri) {
-            val info = container.basemapStore.info()
+            val active = container.basemapStore.active()
             basemapStatus = when {
-                info == null -> "No map file yet."
-                else -> buildString {
-                    append(info.name ?: "Map file")
-                    append(" · zoom ${info.minZoom}–${info.maxZoom}")
-                    append(" · ${info.tileCount} tiles")
-                    append(" · ${info.sizeBytes / 1_000_000} MB")
+                active == null -> "No map file yet."
+                active.bundled ->
+                    "Using the demo map that came with the app — one invented kilometre, " +
+                        "enough to try demo mode on. Pick a file to cover where you run."
+                else -> with(active.info) {
+                    buildString {
+                        append(name ?: "Map file")
+                        append(" · zoom $minZoom–$maxZoom")
+                        append(" · $tileCount tiles")
+                        append(" · ${formatFileSize(sizeBytes)}")
+                    }
                 }
             }
         }

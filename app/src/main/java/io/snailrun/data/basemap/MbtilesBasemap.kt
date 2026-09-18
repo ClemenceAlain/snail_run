@@ -1,6 +1,8 @@
 package io.snailrun.data.basemap
 
 import android.database.sqlite.SQLiteDatabase
+import io.snailrun.domain.geo.LatLonBounds
+import io.snailrun.domain.geo.TileRange
 import io.snailrun.domain.geo.WebMercator
 import java.io.File
 
@@ -12,6 +14,8 @@ data class BasemapInfo(
     val maxZoom: Int,
     val tileCount: Long,
     val sizeBytes: Long,
+    /** The ground the file actually holds tiles for, or null if it could not be read. */
+    val coverage: LatLonBounds? = null,
 )
 
 /**
@@ -113,7 +117,37 @@ class MbtilesBasemap private constructor(
                 maxZoom = maxZoom,
                 tileCount = tileCount,
                 sizeBytes = file.length(),
+                coverage = readCoverage(db, maxZoom),
             )
         }
+
+        /**
+         * The ground the deepest level covers, read from the tile grid.
+         *
+         * From the tiles rather than from the file's declared `bounds`, for the same
+         * reason the zoom range is: a hand-cut extract states whatever the tool that cut
+         * it felt like, and a map that claims ground it does not have is worse than one
+         * that admits to a hole.
+         */
+        private fun readCoverage(db: SQLiteDatabase, maxZoom: Int): LatLonBounds? = runCatching {
+            db.rawQuery(
+                "SELECT MIN(tile_column), MAX(tile_column), MIN(tile_row), MAX(tile_row) " +
+                    "FROM tiles WHERE zoom_level = ?",
+                arrayOf("$maxZoom"),
+            ).use { cursor ->
+                if (!cursor.moveToFirst() || cursor.isNull(0)) return@use null
+                // Rows arrive counted from the bottom, so the smallest row is the
+                // southern edge and becomes the largest y.
+                WebMercator.boundsOf(
+                    TileRange(
+                        zoom = maxZoom,
+                        minX = cursor.getInt(0),
+                        maxX = cursor.getInt(1),
+                        minY = WebMercator.toTmsRow(cursor.getInt(3), maxZoom),
+                        maxY = WebMercator.toTmsRow(cursor.getInt(2), maxZoom),
+                    )
+                )
+            }
+        }.getOrNull()
     }
 }

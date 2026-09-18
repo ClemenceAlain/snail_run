@@ -6,6 +6,7 @@ import kotlin.math.abs
 import kotlin.math.asinh
 import kotlin.math.floor
 import kotlin.math.min
+import kotlin.math.pow
 import kotlin.math.sinh
 import kotlin.math.tan
 
@@ -27,6 +28,14 @@ data class LatLonBounds(
             )
         }
     }
+
+    /**
+     * Whether two areas overlap at all. Used to decide if a map file has anything to say
+     * about a run, before its tiles are drawn under one.
+     */
+    fun intersects(other: LatLonBounds): Boolean =
+        minLat <= other.maxLat && maxLat >= other.minLat &&
+            minLon <= other.maxLon && maxLon >= other.minLon
 }
 
 /** Which tiles a viewport needs, inclusive at both ends. */
@@ -82,25 +91,51 @@ object WebMercator {
     /** Mercator diverges at the poles; tile sets stop here, so the maths does too. */
     const val MAX_LATITUDE = 85.05112878
 
-    fun worldSize(zoom: Int, tileSize: Int = DEFAULT_TILE_SIZE): Double =
-        tileSize.toDouble() * (1 shl zoom)
+    /**
+     * The world in pixels at a fractional zoom.
+     *
+     * Zoom is continuous here and integral in [MapViewport], and the two are not the
+     * same thing: tiles exist only at integers, but a pinch lands anywhere between
+     * them. Everything below has a fractional form because a camera uses it, and an
+     * integer form because a tile grid does.
+     */
+    fun worldSize(zoom: Double, tileSize: Int = DEFAULT_TILE_SIZE): Double =
+        tileSize.toDouble() * 2.0.pow(zoom)
 
-    fun worldX(lon: Double, zoom: Int, tileSize: Int = DEFAULT_TILE_SIZE): Double =
+    fun worldX(lon: Double, zoom: Double, tileSize: Int = DEFAULT_TILE_SIZE): Double =
         (lon + 180.0) / 360.0 * worldSize(zoom, tileSize)
 
-    fun worldY(lat: Double, zoom: Int, tileSize: Int = DEFAULT_TILE_SIZE): Double {
+    fun worldY(lat: Double, zoom: Double, tileSize: Int = DEFAULT_TILE_SIZE): Double {
         val clamped = lat.coerceIn(-MAX_LATITUDE, MAX_LATITUDE)
         val radians = Math.toRadians(clamped)
         return (1.0 - asinh(tan(radians)) / PI) / 2.0 * worldSize(zoom, tileSize)
     }
 
-    fun lonAt(worldX: Double, zoom: Int, tileSize: Int = DEFAULT_TILE_SIZE): Double =
+    fun lonAt(worldX: Double, zoom: Double, tileSize: Int = DEFAULT_TILE_SIZE): Double =
         worldX / worldSize(zoom, tileSize) * 360.0 - 180.0
 
-    fun latAt(worldY: Double, zoom: Int, tileSize: Int = DEFAULT_TILE_SIZE): Double {
+    fun latAt(worldY: Double, zoom: Double, tileSize: Int = DEFAULT_TILE_SIZE): Double {
         val n = PI * (1.0 - 2.0 * worldY / worldSize(zoom, tileSize))
         return Math.toDegrees(kotlin.math.atan(sinh(n)))
     }
+
+    // The integer forms, for tile arithmetic. They delegate rather than repeat the
+    // maths: two copies of a projection drift apart, and the drift shows up as a
+    // track drawn beside its own road.
+    fun worldSize(zoom: Int, tileSize: Int = DEFAULT_TILE_SIZE): Double =
+        worldSize(zoom.toDouble(), tileSize)
+
+    fun worldX(lon: Double, zoom: Int, tileSize: Int = DEFAULT_TILE_SIZE): Double =
+        worldX(lon, zoom.toDouble(), tileSize)
+
+    fun worldY(lat: Double, zoom: Int, tileSize: Int = DEFAULT_TILE_SIZE): Double =
+        worldY(lat, zoom.toDouble(), tileSize)
+
+    fun lonAt(worldX: Double, zoom: Int, tileSize: Int = DEFAULT_TILE_SIZE): Double =
+        lonAt(worldX, zoom.toDouble(), tileSize)
+
+    fun latAt(worldY: Double, zoom: Int, tileSize: Int = DEFAULT_TILE_SIZE): Double =
+        latAt(worldY, zoom.toDouble(), tileSize)
 
     /**
      * Fits [bounds] into a canvas.
@@ -158,6 +193,21 @@ object WebMercator {
             .toInt().coerceIn(0, last)
         return TileRange(viewport.zoom, minX, maxX, minY, maxY)
     }
+
+    /**
+     * The ground a block of tiles covers, inclusive at both ends.
+     *
+     * A tile's own x and y are its top-left corner, so the far edge is one tile further
+     * on — off by that one, and a map file reports itself a tile short in each
+     * direction.
+     */
+    fun boundsOf(range: TileRange, tileSize: Int = DEFAULT_TILE_SIZE): LatLonBounds =
+        LatLonBounds(
+            minLat = latAt((range.maxY + 1).toDouble() * tileSize, range.zoom, tileSize),
+            maxLat = latAt(range.minY.toDouble() * tileSize, range.zoom, tileSize),
+            minLon = lonAt(range.minX.toDouble() * tileSize, range.zoom, tileSize),
+            maxLon = lonAt((range.maxX + 1).toDouble() * tileSize, range.zoom, tileSize),
+        )
 
     /**
      * MBTiles numbers rows from the bottom (TMS); everything else numbers them from the

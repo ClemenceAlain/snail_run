@@ -90,3 +90,20 @@ fun RunDetailTopBar(actions: RunDetailActions) {
         )
     }
 }
+
+/** The map screen's bar: the run's name, and the way back to it. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RunMapTopBar(title: String, onBack: () -> Unit) {
+    TopAppBar(
+        title = { Text(title, style = MaterialTheme.typography.titleMedium) },
+        navigationIcon = {
+            IconButton(onClick = onBack) {
+                Icon(painterResource(R.drawable.ic_back), contentDescription = "Back")
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+        ),
+    )
+}
