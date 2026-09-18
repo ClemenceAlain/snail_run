@@ -14,14 +14,15 @@ network socket. Nothing it records can leave the device.
 - Optionally stops the clock when you stop, and starts it again when you move off.
 - Speaks your pace aloud at every kilometre, using an on-device speech engine.
 - Saves every finished run as a GPX file in a folder you pick once.
-- Lists past runs as a list or a calendar, and shows one with its trace, its
-  pace-and-elevation graph and any records. Drag across the graph for the average over
-  any stretch.
+- Lists past runs as a list, a calendar or a progress chart, and shows one with its
+  trace, its pace-and-elevation graph and any records. Drag across the graph for the
+  average over any stretch.
 - Draws the trace on an offline map, if you put one on the phone.
 - Survives being killed mid-run: the track is in the database, and the app offers to
   finish or continue it on next launch.
 
-Planned next: progress charts.
+Nothing is planned next. The Runs tab's three modes — list, calendar, progress — and the
+run's own screen cover what the app set out to do.
 
 ## Demo mode
 

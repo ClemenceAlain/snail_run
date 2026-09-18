@@ -187,6 +187,7 @@ class MainActivity : ComponentActivity() {
             onSetMode = viewModel::setMode,
             onSelectDate = viewModel::selectDate,
             onShowMonth = viewModel::showMonth,
+            onSetProgressPeriod = viewModel::setProgressPeriod,
         )
     }
 

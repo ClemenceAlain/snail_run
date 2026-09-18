@@ -8,6 +8,9 @@ import io.snailrun.data.db.RunEntity
 import io.snailrun.data.repo.RunRepository
 import io.snailrun.domain.analysis.CalendarMonth
 import io.snailrun.domain.analysis.DayTotal
+import io.snailrun.domain.analysis.Progress
+import io.snailrun.domain.analysis.ProgressBucket
+import io.snailrun.domain.analysis.ProgressPeriod
 import io.snailrun.domain.analysis.RunCalendar
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -20,7 +23,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-enum class HistoryMode { List, Calendar }
+enum class HistoryMode { List, Calendar, Progress }
+
+/** Twelve bars: a season of weeks, or a year of months. Both fit a phone's width. */
+private const val PROGRESS_BUCKETS = 12
 
 data class HistoryUiState(
     val mode: HistoryMode = HistoryMode.List,
@@ -29,6 +35,8 @@ data class HistoryUiState(
     val selectedDate: LocalDate? = null,
     /** In calendar mode, the runs of the selected day, or of the whole month if none. */
     val visibleRuns: List<RunEntity> = emptyList(),
+    val progressPeriod: ProgressPeriod = ProgressPeriod.Week,
+    val progress: List<ProgressBucket> = emptyList(),
 )
 
 /**
@@ -64,6 +72,10 @@ class HistoryViewModel(private val repository: RunRepository) : ViewModel() {
         _ui.value = rebuild(_ui.value.copy(selectedDate = null))
     }
 
+    fun setProgressPeriod(period: ProgressPeriod) {
+        _ui.value = rebuild(_ui.value.copy(progressPeriod = period))
+    }
+
     fun selectDate(date: LocalDate?) {
         val current = _ui.value.selectedDate
         _ui.value = rebuild(_ui.value.copy(selectedDate = if (date == current) null else date))
@@ -88,7 +100,15 @@ class HistoryViewModel(private val repository: RunRepository) : ViewModel() {
             else -> state.runs.filter { YearMonth.from(LocalDate.parse(it.localDate)) == yearMonth }
         }
 
-        return state.copy(month = month, visibleRuns = visible)
+        val progress = Progress.buckets(
+            totals = totals,
+            period = state.progressPeriod,
+            count = PROGRESS_BUCKETS,
+            endingOn = LocalDate.now(),
+            firstDayOfWeek = firstDayOfWeek(),
+        )
+
+        return state.copy(month = month, visibleRuns = visible, progress = progress)
     }
 
     /**

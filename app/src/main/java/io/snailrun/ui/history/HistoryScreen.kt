@@ -26,6 +26,7 @@ import io.snailrun.ui.components.SnailCard
 import io.snailrun.ui.format.RunFormat
 import io.snailrun.ui.theme.SnailType
 import io.snailrun.ui.theme.Spacing
+import io.snailrun.domain.analysis.ProgressPeriod
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -46,6 +47,7 @@ fun HistoryScreen(
     onSetMode: (HistoryMode) -> Unit,
     onSelectDate: (LocalDate) -> Unit,
     onShowMonth: (Long) -> Unit,
+    onSetProgressPeriod: (ProgressPeriod) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (state.runs.isEmpty()) {
@@ -53,7 +55,13 @@ fun HistoryScreen(
         return
     }
 
-    val runs = if (state.mode == HistoryMode.List) state.runs else state.visibleRuns
+    val runs = when (state.mode) {
+        HistoryMode.List -> state.runs
+        HistoryMode.Calendar -> state.visibleRuns
+        // The chart is the answer in progress mode; a list under it would only repeat
+        // the bars in words.
+        HistoryMode.Progress -> emptyList()
+    }
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -93,6 +101,16 @@ fun HistoryScreen(
                     },
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(top = Spacing.s),
+                )
+            }
+        }
+
+        if (state.mode == HistoryMode.Progress) {
+            item {
+                ProgressView(
+                    buckets = state.progress,
+                    period = state.progressPeriod,
+                    onSetPeriod = onSetProgressPeriod,
                 )
             }
         }
