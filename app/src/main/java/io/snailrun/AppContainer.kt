@@ -2,8 +2,10 @@ package io.snailrun
 
 import android.content.Context
 import io.snailrun.data.db.SnailDatabase
+import io.snailrun.data.location.DemoLocationSource
 import io.snailrun.data.location.LocationSource
 import io.snailrun.data.location.PlatformLocationSource
+import io.snailrun.data.prefs.DemoSettings
 import io.snailrun.data.prefs.SettingsRepository
 import io.snailrun.data.repo.RunRepository
 import io.snailrun.data.voice.AndroidVoiceAnnouncer
@@ -31,6 +33,25 @@ class AppContainer(private val context: Context) {
     val runRepository: RunRepository by lazy { RunRepository(database.runDao(), clock) }
 
     val locationSource: LocationSource by lazy { PlatformLocationSource(context) }
+
+    /**
+     * The demo source reads its speed on every subscription rather than holding a copy,
+     * so changing the setting between runs takes effect without rebuilding the graph.
+     */
+    private var demoSpeedFactor: Int = DemoSettings().speedFactor
+
+    private val demoLocationSource: LocationSource by lazy {
+        DemoLocationSource(speedFactor = { demoSpeedFactor })
+    }
+
+    /** Which source a run should use. Decided once, at start, from the saved settings. */
+    fun locationSourceFor(demo: DemoSettings): LocationSource =
+        if (demo.enabled) {
+            demoSpeedFactor = demo.speedFactor
+            demoLocationSource
+        } else {
+            locationSource
+        }
 
     val voiceAnnouncer: VoiceAnnouncer by lazy {
         AndroidVoiceAnnouncer(

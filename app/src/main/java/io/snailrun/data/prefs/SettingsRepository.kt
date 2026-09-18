@@ -24,6 +24,18 @@ data class Settings(
     val speechRate: Float = 1.0f,
     /** Local basemap file. Absent means runs are drawn as a plain trace. */
     val basemapUri: String? = null,
+    val demo: DemoSettings = DemoSettings(),
+)
+
+/**
+ * Replays a synthetic run instead of reading the GPS chip, so the app can be tried
+ * indoors. Off by default and never implied by anything else: a run recorded this way
+ * is real data in the database, and only the tag on it says otherwise.
+ */
+data class DemoSettings(
+    val enabled: Boolean = false,
+    /** Wall-clock compression. 30 means an hour of running arrives in two minutes. */
+    val speedFactor: Int = 30,
 )
 
 class SettingsRepository(private val context: Context) {
@@ -54,6 +66,10 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setKeepScreenOn(value: Boolean) = edit { it[KEEP_SCREEN_ON] = value }
 
+    suspend fun setDemoEnabled(value: Boolean) = edit { it[DEMO_ENABLED] = value }
+
+    suspend fun setDemoSpeedFactor(factor: Int) = edit { it[DEMO_SPEED_FACTOR] = factor }
+
     suspend fun setBasemapUri(uri: String?) = edit {
         if (uri == null) it.remove(BASEMAP_URI) else it[BASEMAP_URI] = uri
     }
@@ -76,6 +92,10 @@ class SettingsRepository(private val context: Context) {
         keepScreenOn = this[KEEP_SCREEN_ON] ?: true,
         speechRate = this[SPEECH_RATE] ?: 1.0f,
         basemapUri = this[BASEMAP_URI],
+        demo = DemoSettings(
+            enabled = this[DEMO_ENABLED] ?: false,
+            speedFactor = this[DEMO_SPEED_FACTOR] ?: 30,
+        ),
     )
 
     private companion object {
@@ -90,5 +110,7 @@ class SettingsRepository(private val context: Context) {
         val AUTO_EXPORT = booleanPreferencesKey("auto_export")
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
         val BASEMAP_URI = stringPreferencesKey("basemap_uri")
+        val DEMO_ENABLED = booleanPreferencesKey("demo_enabled")
+        val DEMO_SPEED_FACTOR = intPreferencesKey("demo_speed_factor")
     }
 }

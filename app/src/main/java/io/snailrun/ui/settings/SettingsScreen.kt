@@ -39,6 +39,8 @@ data class SettingsActions(
     val onChooseExportFolder: () -> Unit,
     val onAutoExport: (Boolean) -> Unit,
     val onKeepScreenOn: (Boolean) -> Unit,
+    val onDemoEnabled: (Boolean) -> Unit,
+    val onDemoSpeedFactor: (Int) -> Unit,
 )
 
 @Composable
@@ -151,6 +153,50 @@ fun SettingsScreen(
         }
 
         Spacer(Modifier.height(Spacing.section))
+        SectionTitle("Demo mode")
+
+        SnailCard(modifier = Modifier.fillMaxWidth()) {
+            SwitchRow(
+                label = "Record a fake run",
+                checked = settings.demo.enabled,
+                onCheckedChange = actions.onDemoEnabled,
+            )
+            Spacer(Modifier.height(Spacing.s))
+            Text(
+                text = "Start replays a made-up loop instead of reading the GPS chip, so " +
+                    "you can see the numbers, the voice and the trace without going " +
+                    "outside. The run is saved like any other and labelled DEMO, and it " +
+                    "is left out of your records.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            AnimatedVisibility(visible = settings.demo.enabled) {
+                Column {
+                    Spacer(Modifier.height(Spacing.l))
+                    Text("Speed", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(Spacing.s))
+                    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                        listOf(1, 10, 30, 60).forEach { factor ->
+                            FilterChip(
+                                selected = settings.demo.speedFactor == factor,
+                                onClick = { actions.onDemoSpeedFactor(factor) },
+                                label = { Text("${factor}x") },
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(Spacing.s))
+                    Text(
+                        text = "One hour of running arrives in " +
+                            demoDurationLabel(settings.demo.speedFactor) + ".",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(Spacing.section))
         SectionTitle("Privacy")
 
         SnailCard(modifier = Modifier.fillMaxWidth()) {
@@ -162,6 +208,15 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+private fun demoDurationLabel(speedFactor: Int): String {
+    val seconds = 3_600 / speedFactor.coerceAtLeast(1)
+    return when {
+        seconds >= 3_600 -> "an hour"
+        seconds >= 120 -> "about ${seconds / 60} minutes"
+        else -> "about $seconds seconds"
     }
 }
 

@@ -17,6 +17,9 @@ const val STATUS_RECORDING = "RECORDING"
 const val STATUS_COMPLETE = "COMPLETE"
 const val SOURCE_RECORDED = "RECORDED"
 
+/** A run replayed from the built-in synthetic trace. Kept out of personal records. */
+const val SOURCE_DEMO = "DEMO"
+
 /**
  * The only thing that writes runs.
  *
@@ -40,7 +43,10 @@ class RunRepository(
 
     suspend fun unfinishedRun(): RunEntity? = dao.unfinishedRun()
 
-    suspend fun startRun(startedAtEpochMs: Long = clock.millis()): Long {
+    suspend fun startRun(
+        startedAtEpochMs: Long = clock.millis(),
+        source: String = SOURCE_RECORDED,
+    ): Long {
         val zone = ZoneId.systemDefault()
         return dao.insertRun(
             RunEntity(
@@ -58,7 +64,7 @@ class RunRepository(
                 minLat = 0.0, maxLat = 0.0, minLon = 0.0, maxLon = 0.0,
                 title = null,
                 note = null,
-                source = SOURCE_RECORDED,
+                source = source,
                 status = STATUS_RECORDING,
             )
         )

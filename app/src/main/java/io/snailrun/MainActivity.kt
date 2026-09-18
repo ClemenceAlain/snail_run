@@ -131,7 +131,10 @@ class MainActivity : ComponentActivity() {
 
         RecordScreen(
             state = recording,
-            gpsEnabled = ui.gpsEnabled,
+            // Demo mode invents its own fixes, so a disabled GPS is not a problem it
+            // needs to warn about.
+            gpsEnabled = ui.gpsEnabled || settings.demo.enabled,
+            demoMode = settings.demo.enabled,
             onStart = {
                 if (hasFineLocation()) {
                     RunRecordingService.start(this)
@@ -264,6 +267,8 @@ class MainActivity : ComponentActivity() {
                 onChooseExportFolder = { folderPicker.launch(null) },
                 onAutoExport = { scope.launch { container.settings.setAutoExportEnabled(it) } },
                 onKeepScreenOn = { scope.launch { container.settings.setKeepScreenOn(it) } },
+                onDemoEnabled = { scope.launch { container.settings.setDemoEnabled(it) } },
+                onDemoSpeedFactor = { scope.launch { container.settings.setDemoSpeedFactor(it) } },
             )
         }
 

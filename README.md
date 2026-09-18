@@ -18,6 +18,23 @@ network socket. Nothing it records can leave the device.
 Planned next: auto-pause, a calendar view, an offline basemap behind the trace, then
 progress charts and GPX import.
 
+## Demo mode
+
+Settings → **Demo mode** replaces the GPS chip with a synthetic trace, so the app can be
+tried indoors: a loop, a pace that drifts, three traffic-light stops and a hill per lap.
+
+Fix timestamps stay one second apart whatever speed you pick, because every metric is
+derived from them. Only the wall clock between fixes is compressed: at 30x an hour of
+running arrives in two minutes, and the numbers, the splits, the voice and the trace are
+the ones an hour of real running would have produced.
+
+A demo run is recorded like any other — it lands in the database and in your history —
+so it is tagged `DEMO`, badged in the list, announced in red on the record screen while
+it runs, and excluded from personal records. Delete it from its own screen when done.
+
+The generator lives in `domain/demo/DemoRoute.kt` and is pure, so the trace the phone
+replays is the one the tests assert on.
+
 ## Requirements
 
 - Android 12 (API 31) or newer. Built and tested against API 35.
@@ -47,7 +64,7 @@ the announcement schedule — run under plain JUnit with no device and no emulat
 
 ```
 io.snailrun
-├── domain/     geo, metrics, analysis, voice, gpx   (pure Kotlin, heavily tested)
+├── domain/     geo, metrics, analysis, voice, gpx, demo  (pure Kotlin, tested)
 ├── data/       db, prefs, location, repo, export, voice
 ├── tracking/   RunRecorder, RunRecordingService
 └── ui/         theme, components, record, history, detail, settings

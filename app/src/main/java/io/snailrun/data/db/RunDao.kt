@@ -126,7 +126,9 @@ interface RunDao {
                r.startedAtEpochMs AS startedAtEpochMs
         FROM best_efforts be
         JOIN runs r ON r.id = be.runId
-        WHERE be.distanceMeters = :distanceMeters AND r.status = 'COMPLETE'
+        WHERE be.distanceMeters = :distanceMeters
+          AND r.status = 'COMPLETE'
+          AND r.source != 'DEMO'
         ORDER BY be.durationMs ASC
         LIMIT 1
         """

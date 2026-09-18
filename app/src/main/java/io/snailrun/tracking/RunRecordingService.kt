@@ -17,6 +17,9 @@ import androidx.core.app.ServiceCompat
 import io.snailrun.MainActivity
 import io.snailrun.R
 import io.snailrun.SnailRunApp
+import io.snailrun.data.prefs.DemoSettings
+import io.snailrun.data.repo.SOURCE_DEMO
+import io.snailrun.data.repo.SOURCE_RECORDED
 import io.snailrun.ui.format.RunFormat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -76,8 +79,11 @@ class RunRecordingService : Service() {
         acquireWakeLock()
         observeState()
         scope.launch {
-            container.runRecorder.start()
-            collectFixes()
+            // Read once, at start. A run never switches source halfway through, so the
+            // trace a run holds always matches the tag written on it.
+            val demo = container.settings.settings.first().demo
+            container.runRecorder.start(if (demo.enabled) SOURCE_DEMO else SOURCE_RECORDED)
+            collectFixes(demo)
         }
     }
 
@@ -88,14 +94,17 @@ class RunRecordingService : Service() {
         scope.launch {
             if (container.runRecorder.recover(runId)) {
                 container.runRecorder.resume()
-                collectFixes()
+                // A recovered demo run would restart its synthetic trace from the
+                // beginning and teleport; the real chip is the honest thing to continue
+                // with, and the run keeps whatever tag it already carries.
+                collectFixes(DemoSettings(enabled = false))
             }
         }
     }
 
     @SuppressLint("MissingPermission")
-    private suspend fun collectFixes() {
-        container.locationSource.fixes().collect { fix ->
+    private suspend fun collectFixes(demo: DemoSettings) {
+        container.locationSourceFor(demo).fixes().collect { fix ->
             container.runRecorder.onFix(fix)
         }
     }

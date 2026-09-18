@@ -2,6 +2,7 @@ package io.snailrun.tracking
 
 import io.snailrun.data.prefs.SettingsRepository
 import io.snailrun.data.repo.RunRepository
+import io.snailrun.data.repo.SOURCE_RECORDED
 import io.snailrun.domain.analysis.SplitCalculator
 import io.snailrun.domain.metrics.FixOutcome
 import io.snailrun.domain.metrics.MetricsAccumulator
@@ -74,7 +75,8 @@ class RunRecorder(
     /** Set by the service; the recorder never talks to Android directly. */
     var onAnnouncement: ((Announcement) -> Unit)? = null
 
-    suspend fun start(): Long = mutex.withLock {
+    /** [source] tags the run, so a demo one is never mistaken for a real one. */
+    suspend fun start(source: String = SOURCE_RECORDED): Long = mutex.withLock {
         val voice = settings.settings.first().voice
         scheduler = AnnouncementScheduler(voice)
         cursor = AnnouncementCursor()
@@ -83,7 +85,7 @@ class RunRecorder(
         recorded.clear()
 
         val now = clock.millis()
-        val id = repository.startRun(now)
+        val id = repository.startRun(now, source)
         runId = id
         startedAtEpochMs = now
         lastFlushMs = now

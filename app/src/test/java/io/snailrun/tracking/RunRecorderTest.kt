@@ -5,6 +5,9 @@ import androidx.test.core.app.ApplicationProvider
 import io.snailrun.data.db.SnailDatabase
 import io.snailrun.data.prefs.SettingsRepository
 import io.snailrun.data.repo.RunRepository
+import io.snailrun.data.repo.SOURCE_DEMO
+import io.snailrun.domain.demo.DemoRoute
+import io.snailrun.domain.demo.DemoRunProfile
 import io.snailrun.domain.fixtures.Traces
 import io.snailrun.domain.gpx.GpxTrack
 import io.snailrun.domain.gpx.GpxWriter
@@ -93,6 +96,35 @@ class RunRecorderTest {
             "a 3.6 km run cannot hold a 5 km record",
             repository.observePersonalRecord(5_000).first(),
         )
+    }
+
+    @Test
+    fun `a demo run is stored and labelled, but never becomes a personal record`() = runTest {
+        val profile = DemoRunProfile(stops = emptyList())
+        val demoId = recorder.start(SOURCE_DEMO)
+        DemoRoute.fixes(profile, startEpochMs = clock.nowMs)
+            .take(20 * 60 + 1)
+            .forEach { fix ->
+                clock.nowMs = fix.epochMs
+                recorder.onFix(fix)
+            }
+        recorder.finish()
+
+        val run = repository.observeRun(demoId).first()!!
+        assertEquals(SOURCE_DEMO, run.source)
+        assertEquals("COMPLETE", run.status)
+        // 20 minutes at about 5:30/km: a real run's worth of track, splits and all.
+        assertEquals(3_640.0, run.distanceMeters, 300.0)
+        assertTrue(repository.observeSplits(demoId).first().size >= 3)
+
+        assertNull(
+            "a demo run must not hold a record",
+            repository.observePersonalRecord(1_000).first(),
+        )
+
+        // And a real run of the same shape still does.
+        runFixture(seconds = 1200)
+        assertNotNull(repository.observePersonalRecord(1_000).first())
     }
 
     @Test

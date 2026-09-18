@@ -52,6 +52,7 @@ import io.snailrun.ui.theme.Spacing
 fun RecordScreen(
     state: RecordingState,
     gpsEnabled: Boolean,
+    demoMode: Boolean,
     onStart: () -> Unit,
     onPause: () -> Unit,
     onResume: () -> Unit,
@@ -71,6 +72,7 @@ fun RecordScreen(
             isPaused = active?.isPaused == true,
             quality = active?.metrics?.gpsQuality ?: GpsQuality.NO_FIX,
             gpsEnabled = gpsEnabled,
+            demoMode = demoMode,
         )
 
         Spacer(Modifier.height(Spacing.section))
@@ -127,6 +129,7 @@ private fun StatusRow(
     isPaused: Boolean,
     quality: GpsQuality,
     gpsEnabled: Boolean,
+    demoMode: Boolean,
 ) {
     Row(
         modifier = Modifier
@@ -144,13 +147,16 @@ private fun StatusRow(
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface,
         )
-        GpsIndicator(quality = quality, gpsEnabled = gpsEnabled)
+        GpsIndicator(quality = quality, gpsEnabled = gpsEnabled, demoMode = demoMode)
     }
 }
 
 @Composable
-private fun GpsIndicator(quality: GpsQuality, gpsEnabled: Boolean) {
+private fun GpsIndicator(quality: GpsQuality, gpsEnabled: Boolean, demoMode: Boolean) {
     val color = when {
+        // Loud on purpose: a demo run is saved like any other, and the only thing that
+        // stops it being mistaken for a real one is being told, every second of it.
+        demoMode -> MaterialTheme.colorScheme.error
         !gpsEnabled -> MaterialTheme.colorScheme.error
         quality == GpsQuality.GOOD -> MaterialTheme.colorScheme.primary
         quality == GpsQuality.OK -> MaterialTheme.colorScheme.tertiary
@@ -158,6 +164,7 @@ private fun GpsIndicator(quality: GpsQuality, gpsEnabled: Boolean) {
         else -> MaterialTheme.colorScheme.outline
     }
     val label = when {
+        demoMode -> "Demo run — not real"
         !gpsEnabled -> "Location off"
         quality == GpsQuality.GOOD -> "GPS good"
         quality == GpsQuality.OK -> "GPS ok"

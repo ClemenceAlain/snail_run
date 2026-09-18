@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import io.snailrun.data.db.RunEntity
+import io.snailrun.data.repo.SOURCE_DEMO
 import io.snailrun.ui.components.SnailCard
 import io.snailrun.ui.format.RunFormat
 import io.snailrun.ui.theme.SnailType
@@ -80,6 +81,13 @@ private fun RunRow(run: RunEntity, onClick: () -> Unit) {
             text = run.title ?: dayformat().format(started),
             style = MaterialTheme.typography.titleMedium,
         )
+        if (run.source == SOURCE_DEMO) {
+            Text(
+                text = "DEMO",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
         Text(
             text = timeformat().format(started),
             style = MaterialTheme.typography.bodyMedium,
