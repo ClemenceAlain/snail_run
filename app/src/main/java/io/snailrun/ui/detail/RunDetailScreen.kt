@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -33,10 +34,13 @@ import io.snailrun.ui.components.BasemapLayer
 import io.snailrun.ui.components.MetricRow
 import io.snailrun.ui.components.PaceProfileChart
 import io.snailrun.ui.components.RouteTrace
+import io.snailrun.domain.coach.SegmentResult
+import io.snailrun.domain.coach.WorkoutType
 import io.snailrun.ui.components.SnailCard
 import io.snailrun.ui.format.RunFormat
 import io.snailrun.ui.theme.SnailType
 import io.snailrun.ui.theme.Spacing
+import kotlin.math.roundToInt
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -57,6 +61,8 @@ data class RunDetailUiState(
     val selectedSegments: List<List<LatLon>> = emptyList(),
     /** Distances for which this run currently holds the record. */
     val records: List<Pair<Int, Long>> = emptyList(),
+    /** The session this run was guided through, and what was run in each step of it. */
+    val session: List<SegmentResult> = emptyList(),
 )
 
 @Composable
@@ -167,6 +173,26 @@ fun RunDetailScreen(
             }
         }
 
+        if (state.session.isNotEmpty()) {
+            item {
+                Spacer(Modifier.height(Spacing.section))
+                Text(
+                    text = run.workoutType?.let { sessionTitle(it) } ?: "Session",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Spacer(Modifier.height(Spacing.s))
+                Text(
+                    text = "What was asked for, and what you ran.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(Spacing.m))
+            }
+            items(state.session, key = { it.segment.index }) { result ->
+                SessionRow(result)
+            }
+        }
+
         item {
             Spacer(Modifier.height(Spacing.section))
             Text(
@@ -178,6 +204,67 @@ fun RunDetailScreen(
         }
     }
 }
+
+/**
+ * One step of a session: what it asked for, what it got.
+ *
+ * The difference is only shown where there was a target to miss. A jog has no pace to be
+ * wrong about, and printing a number beside it would invite the runner to chase it.
+ */
+@Composable
+private fun SessionRow(result: SegmentResult) {
+    val delta = result.paceDeltaSecPerKm
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.xs),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = buildString {
+                    append(result.segment.label)
+                    if (result.segment.isRep) {
+                        append(" ${result.segment.repIndex}/${result.segment.repCount}")
+                    }
+                },
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Text(
+                text = "${RunFormat.duration(result.actualMs)} · " +
+                    "${RunFormat.distanceKm(result.actualMeters)}\u00A0km",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                text = "${RunFormat.pace(result.actualPaceSecPerKm)}\u00A0/km",
+                style = SnailType.metricSmall,
+                maxLines = 1,
+                softWrap = false,
+            )
+            if (delta != null) {
+                Text(
+                    text = when {
+                        result.onTarget -> "on target"
+                        delta > 0 -> "+${delta.roundToInt()} s"
+                        else -> "${delta.roundToInt()} s"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (result.onTarget) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
+        }
+    }
+}
+
+private fun sessionTitle(type: String): String =
+    runCatching { WorkoutType.valueOf(type).label }.getOrDefault("Session")
 
 /** The one warm note in the app: coral, and only for a record. */
 @Composable

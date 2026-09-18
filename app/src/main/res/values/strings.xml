@@ -8,6 +8,7 @@
     <string name="notification_title">snail run</string>
     <string name="notification_starting">Waiting for GPS…</string>
     <string name="notification_progress">%1$s km · %2$s · %3$s /km</string>
+    <string name="notification_workout_rep">%1$s %2$d/%3$d</string>
 
     <!--
       Shown when a finished run could not be written as a GPX file. Every one of these
@@ -44,4 +45,15 @@
          interrupts nothing, and the runner is standing at a light wanting one word. -->
     <string name="speech_auto_paused">paused</string>
     <string name="speech_auto_resumed">running again</string>
+    <!-- Counting a runner through a session. Said mid-rep at 170 beats a minute, so
+         every one of these is as short as it can be and still mean something. -->
+    <string name="speech_rep_of">rep %1$d of %2$d</string>
+    <string name="speech_countdown">%1$d</string>
+    <string name="speech_ease_down">ease down</string>
+    <string name="speech_pick_it_up">pick it up</string>
+    <string name="speech_session_complete">session done</string>
+    <string name="speech_for">for</string>
+    <string name="speech_between">between</string>
+    <string name="speech_and">and</string>
+    <string name="speech_next">then</string>
 </resources>

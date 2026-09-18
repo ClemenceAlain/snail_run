@@ -13,6 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TrackPointEntity::class,
         SplitEntity::class,
         BestEffortEntity::class,
+        WorkoutSegmentEntity::class,
     ],
     version = SnailDatabase.SCHEMA_VERSION,
     exportSchema = true,
@@ -28,7 +29,7 @@ abstract class SnailDatabase : RoomDatabase() {
          * that drifted from the annotation would let that check pass on a file this
          * build cannot read.
          */
-        const val SCHEMA_VERSION = 2
+        const val SCHEMA_VERSION = 3
 
         const val FILE_NAME = "snail-run.db"
 
@@ -45,11 +46,40 @@ abstract class SnailDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Structured sessions. Both columns are nullable and both are null for every run
+         * already on the phone, because none of them was guided through anything.
+         */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE runs ADD COLUMN workoutType TEXT")
+                db.execSQL("ALTER TABLE runs ADD COLUMN workoutAdvancesActiveMs TEXT")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS workout_segments (
+                        runId INTEGER NOT NULL,
+                        segmentIndex INTEGER NOT NULL,
+                        label TEXT NOT NULL,
+                        kind TEXT NOT NULL,
+                        targetMs INTEGER,
+                        targetM REAL,
+                        paceLowSecPerKm REAL,
+                        paceHighSecPerKm REAL,
+                        repIndex INTEGER,
+                        repCount INTEGER,
+                        PRIMARY KEY (runId, segmentIndex),
+                        FOREIGN KEY (runId) REFERENCES runs(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun build(context: Context): SnailDatabase =
             Room.databaseBuilder(context, SnailDatabase::class.java, FILE_NAME)
                 // Concurrent reads during a run's 10-second insert flushes.
                 .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
     }
 }

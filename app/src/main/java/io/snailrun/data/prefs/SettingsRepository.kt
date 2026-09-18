@@ -52,6 +52,15 @@ data class CoachSettings(
      * with one.
      */
     val dayOrders: Map<Long, List<Int>> = emptyMap(),
+    /**
+     * Whether the app comments on your pace inside a rep.
+     *
+     * Off by default, and the only cue that is. The pace it reads is smoothed GPS, which
+     * wanders ten seconds a kilometre under trees and round corners, so this is the one
+     * that can start nagging — and a runner who turns off the nagging usually turns off
+     * the whole voice with it.
+     */
+    val nudgeOffPace: Boolean = false,
 )
 
 /**
@@ -157,6 +166,8 @@ class SettingsRepository(private val context: Context) {
         if (encoded.isEmpty()) it.remove(COACH_DAY_ORDERS) else it[COACH_DAY_ORDERS] = encoded
     }
 
+    suspend fun setCoachNudgeOffPace(value: Boolean) = edit { it[COACH_NUDGE_OFF_PACE] = value }
+
     suspend fun setBasemapUri(uri: String?) = edit {
         if (uri == null) it.remove(BASEMAP_URI) else it[BASEMAP_URI] = uri
     }
@@ -188,6 +199,7 @@ class SettingsRepository(private val context: Context) {
             targetDistanceMeters = this[COACH_TARGET_DISTANCE],
             targetDateEpochDay = this[COACH_TARGET_DATE],
             dayOrders = DayOrders.decode(this[COACH_DAY_ORDERS]),
+            nudgeOffPace = this[COACH_NUDGE_OFF_PACE] ?: false,
         ),
     )
 
@@ -209,5 +221,6 @@ class SettingsRepository(private val context: Context) {
         val COACH_TARGET_DISTANCE = intPreferencesKey("coach_target_distance")
         val COACH_TARGET_DATE = longPreferencesKey("coach_target_date")
         val COACH_DAY_ORDERS = stringPreferencesKey("coach_day_orders")
+        val COACH_NUDGE_OFF_PACE = booleanPreferencesKey("coach_nudge_off_pace")
     }
 }

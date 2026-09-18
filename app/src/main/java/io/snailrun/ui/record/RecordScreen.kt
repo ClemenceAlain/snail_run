@@ -35,13 +35,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import io.snailrun.domain.coach.SegmentKind
+import io.snailrun.domain.coach.Workout
+import io.snailrun.domain.coach.WorkoutProgress
 import io.snailrun.domain.model.GpsQuality
 import io.snailrun.domain.model.RunStatus
 import io.snailrun.tracking.RecordingState
 import io.snailrun.ui.components.MetricReadout
+import io.snailrun.ui.components.SnailCard
 import io.snailrun.ui.format.RunFormat
 import io.snailrun.ui.theme.SnailType
 import io.snailrun.ui.theme.Spacing
+import kotlin.math.roundToInt
 
 /**
  * The screen a runner looks at mid-stride: one hero number, two supporting ones, and a
@@ -57,6 +62,11 @@ fun RecordScreen(
     onResume: () -> Unit,
     onFinish: () -> Unit,
     modifier: Modifier = Modifier,
+    todaysSession: Workout? = null,
+    armedSession: Workout? = null,
+    onArmSession: (Workout?) -> Unit = {},
+    onNextSegment: () -> Unit = {},
+    onEndSession: () -> Unit = {},
 ) {
     val active = state as? RecordingState.Active
 
@@ -75,7 +85,19 @@ fun RecordScreen(
             demoMode = demoMode,
         )
 
-        Spacer(Modifier.height(Spacing.section))
+        Spacer(Modifier.height(Spacing.l))
+
+        if (active?.workout != null) {
+            SessionPanel(progress = active.workout, onNext = onNextSegment, onEnd = onEndSession)
+            Spacer(Modifier.height(Spacing.l))
+        } else if (active == null && todaysSession != null) {
+            TodaysSession(
+                session = todaysSession,
+                armed = armedSession != null,
+                onArm = { onArmSession(if (armedSession == null) todaysSession else null) },
+            )
+            Spacer(Modifier.height(Spacing.l))
+        }
 
         MetricReadout(
             value = RunFormat.duration(active?.metrics?.activeDurationMs ?: 0L),
@@ -117,6 +139,142 @@ fun RecordScreen(
         Spacer(Modifier.height(Spacing.huge))
     }
 }
+
+/**
+ * What the coach has down for today, before the run starts.
+ *
+ * Loading it is a separate press from starting, because opening the app to go for an easy
+ * half hour should not mean fighting off a tempo you never asked for.
+ */
+@Composable
+private fun TodaysSession(session: Workout, armed: Boolean, onArm: () -> Unit) {
+    SnailCard(
+        modifier = Modifier.fillMaxWidth(),
+        containerColor = if (armed) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainer
+        },
+    ) {
+        val content = if (armed) {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurface
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = if (armed) "Loaded: ${session.type.label}" else "Today: ${session.type.label}",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = content,
+                )
+                Text(
+                    text = sessionLine(session),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = content,
+                )
+            }
+            TextButton(onClick = onArm) { Text(if (armed) "Unload" else "Load") }
+        }
+    }
+}
+
+/** Where the runner is in the session, while they are in it. */
+@Composable
+private fun SessionPanel(progress: WorkoutProgress, onNext: () -> Unit, onEnd: () -> Unit) {
+    SnailCard(
+        modifier = Modifier.fillMaxWidth(),
+        containerColor = when {
+            progress.complete -> MaterialTheme.colorScheme.surfaceContainer
+            progress.segment.kind == SegmentKind.Work -> MaterialTheme.colorScheme.primaryContainer
+            else -> MaterialTheme.colorScheme.secondaryContainer
+        },
+    ) {
+        val content = when {
+            progress.complete -> MaterialTheme.colorScheme.onSurface
+            progress.segment.kind == SegmentKind.Work -> MaterialTheme.colorScheme.onPrimaryContainer
+            else -> MaterialTheme.colorScheme.onSecondaryContainer
+        }
+
+        if (progress.complete) {
+            Text("Session done", style = MaterialTheme.typography.titleMedium, color = content)
+            Text(
+                text = "Keep running as long as you like.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = content,
+            )
+            return@SnailCard
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = buildString {
+                        append(progress.segment.label)
+                        if (progress.segment.isRep) {
+                            append("  ${progress.segment.repIndex}/${progress.segment.repCount}")
+                        }
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                    color = content,
+                )
+                progress.segment.paceSecPerKm?.let { band ->
+                    Text(
+                        text = paceBand(band),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = content,
+                    )
+                }
+            }
+            // What is left, in whatever the step was prescribed in. A step given a time
+            // counts down; one given a distance counts down in metres.
+            Text(
+                text = progress.remainingMs?.let { RunFormat.duration(it) }
+                    ?: progress.remainingM?.let { "${it.roundToInt()}\u00A0m" }
+                    ?: "",
+                style = SnailType.metricSmall,
+                color = content,
+                maxLines = 1,
+                softWrap = false,
+            )
+        }
+
+        progress.next?.let { next ->
+            Text(
+                text = "then ${next.label.lowercase()}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = content,
+            )
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+            TextButton(onClick = onNext) { Text("NEXT") }
+            TextButton(onClick = onEnd) { Text("END SESSION") }
+        }
+    }
+}
+
+private fun sessionLine(session: Workout): String {
+    val work = session.steps.firstOrNull { it.repeats > 1 }
+        ?: return "${RunFormat.distanceKm(session.totalMeters)}\u00A0km"
+    val each = work.durationMs?.let { "${(it / 60_000.0).roundToInt()}\u00A0min" }
+        ?: work.distanceM?.let { "${it.roundToInt()}\u00A0m" }
+        ?: ""
+    return "${work.repeats} × $each · ${RunFormat.distanceKm(session.totalMeters)}\u00A0km"
+}
+
+private fun paceBand(range: ClosedFloatingPointRange<Double>): String =
+    if (range.start == range.endInclusive) {
+        "${RunFormat.pace(range.start)}\u00A0/km"
+    } else {
+        "${RunFormat.pace(range.start)}–${RunFormat.pace(range.endInclusive)}\u00A0/km"
+    }
 
 @Composable
 private fun StatusRow(

@@ -4,6 +4,14 @@ import io.snailrun.data.prefs.SettingsRepository
 import io.snailrun.data.repo.RunRepository
 import io.snailrun.data.repo.SOURCE_RECORDED
 import io.snailrun.domain.analysis.SplitCalculator
+import io.snailrun.domain.coach.Workout
+import io.snailrun.domain.coach.WorkoutCue
+import io.snailrun.domain.coach.WorkoutCueConfig
+import io.snailrun.domain.coach.WorkoutCursor
+import io.snailrun.domain.coach.WorkoutProgress
+import io.snailrun.domain.coach.WorkoutScheduler
+import io.snailrun.domain.coach.WorkoutSegments
+import io.snailrun.domain.coach.WorkoutType
 import io.snailrun.domain.geo.TrackSmoother
 import io.snailrun.domain.metrics.AutoPauseDetector
 import io.snailrun.domain.metrics.AutoPauseEvent
@@ -36,6 +44,9 @@ sealed interface RecordingState {
         val metrics: RunMetrics,
         val splits: List<Split>,
         val startedAtEpochMs: Long,
+        /** Where the runner is in a structured session, or null for an ordinary run. */
+        val workout: WorkoutProgress? = null,
+        val workoutType: WorkoutType? = null,
     ) : RecordingState {
         val isPaused: Boolean
             get() = metrics.status == RunStatus.PAUSED_MANUAL ||
@@ -81,6 +92,10 @@ class RunRecorder(
      */
     private var autoPauseSmoother = TrackSmoother()
 
+    private var workout: WorkoutScheduler? = null
+    private var workoutType: WorkoutType? = null
+    private var workoutCursor = WorkoutCursor()
+
     private val pending = mutableListOf<TrackPoint>()
     private val recorded = mutableListOf<TrackPoint>()
     private var lastFlushMs = 0L
@@ -92,6 +107,9 @@ class RunRecorder(
     /** The same, for the things the app does to the run rather than reports about it. */
     var onNotice: ((RunNotice) -> Unit)? = null
 
+    /** And again, for counting the runner through a session. */
+    var onCue: ((WorkoutCue) -> Unit)? = null
+
     /**
      * Read once at the start of a run, like the auto-pause setting beside it. A notice
      * is part of the voice feature: someone who turned the voice off wants the app
@@ -99,8 +117,14 @@ class RunRecorder(
      */
     private var voiceEnabled: Boolean = false
 
-    /** [source] tags the run, so a demo one is never mistaken for a real one. */
-    suspend fun start(source: String = SOURCE_RECORDED): Long = mutex.withLock {
+    /**
+     * [source] tags the run, so a demo one is never mistaken for a real one.
+     *
+     * [session] is the structured workout to be counted through, if one was armed. It is
+     * read once here, like the settings beside it — a session changed mid-run would leave
+     * the runner halfway through a rep that no longer exists.
+     */
+    suspend fun start(source: String = SOURCE_RECORDED, session: Workout? = null): Long = mutex.withLock {
         val saved = settings.settings.first()
         scheduler = AnnouncementScheduler(saved.voice)
         cursor = AnnouncementCursor()
@@ -111,12 +135,22 @@ class RunRecorder(
         pending.clear()
         recorded.clear()
 
+        val segments = session?.let { WorkoutSegments.of(it) }.orEmpty()
+        workout = segments.takeIf { it.isNotEmpty() }?.let {
+            WorkoutScheduler(it, WorkoutCueConfig(nudgeOffPace = saved.coach.nudgeOffPace))
+        }
+        workoutType = session?.type.takeIf { workout != null }
+        workoutCursor = WorkoutCursor()
+
         val now = clock.millis()
         val id = repository.startRun(now, source)
         runId = id
         startedAtEpochMs = now
         lastFlushMs = now
         lastSummaryMs = now
+        if (workout != null && session != null) {
+            repository.attachWorkout(id, session.type, segments)
+        }
         publish()
         id
     }
@@ -134,6 +168,18 @@ class RunRecorder(
         )
         accumulator = MetricsAccumulator().apply { restore(stored) }
         voiceEnabled = saved.voice.enabled
+
+        // The session is rebuilt by running the stored track back through the scheduler.
+        // Where the runner had got to was never written down because it never needed to
+        // be: it is a function of the track and the handful of times they pressed Next.
+        val segments = repository.workoutSegmentsFor(id)
+        workoutType = run.workoutType?.let { name ->
+            runCatching { WorkoutType.valueOf(name) }.getOrNull()
+        }
+        workout = segments.takeIf { it.isNotEmpty() }?.let {
+            WorkoutScheduler(it, WorkoutCueConfig(nudgeOffPace = saved.coach.nudgeOffPace))
+        }
+        workoutCursor = replayWorkout(stored, run.workoutAdvancesActiveMs)
         autoPause = if (saved.autoPauseEnabled) AutoPauseDetector() else null
         autoPauseSmoother = TrackSmoother()
         pending.clear()
@@ -155,6 +201,7 @@ class RunRecorder(
             is FixOutcome.Recorded -> {
                 pending += outcome.point
                 recorded += outcome.point
+                maybeCue(outcome.metrics)
                 maybeAnnounce(outcome.metrics)
                 maybePersist(id)
                 publish()
@@ -292,13 +339,93 @@ class RunRecorder(
     private fun currentSplits(): List<Split> =
         if (recorded.size < 2) emptyList() else SplitCalculator.compute(recorded)
 
+    /**
+     * Ends the current segment where the runner is standing.
+     *
+     * The mark is written to the run because it is the one thing about a guided session
+     * that cannot be worked out again from the track: where each segment ended is
+     * arithmetic, and the runner deciding they were done with one is not.
+     */
+    suspend fun nextSegment() = mutex.withLock {
+        val id = runId ?: return@withLock
+        val session = workout ?: return@withLock
+        if (workoutCursor.complete) return@withLock
+
+        val metrics = accumulator.metrics
+        workoutCursor = session.advance(metrics.activeDurationMs, metrics.distanceMeters, workoutCursor)
+        repository.recordWorkoutAdvance(id, metrics.activeDurationMs)
+        maybeCue(metrics)
+        publish()
+    }
+
+    /** Drops the guidance and keeps recording. The run is a run either way. */
+    suspend fun endSession() = mutex.withLock {
+        workout = null
+        publish()
+    }
+
+    /**
+     * Counts the runner through the session and reports anything worth saying.
+     *
+     * A cue also stamps the announcement cursor. The speech engine speaks one utterance
+     * at a time and the newest wins, so without this a kilometre milestone landing on the
+     * same second as a rep change would talk over "rep three of five" — and the existing
+     * twenty-second floor between announcements is exactly the rule that stops it.
+     */
+    private fun maybeCue(metrics: RunMetrics) {
+        val session = workout ?: return
+        val (_, cues, next) = session.evaluate(
+            activeMs = metrics.activeDurationMs,
+            meters = metrics.distanceMeters,
+            paceSecPerKm = metrics.paceSecPerKm,
+            cursor = workoutCursor,
+        )
+        workoutCursor = next
+        if (cues.isEmpty()) return
+        cursor = cursor.copy(lastAnnouncementActiveMs = metrics.activeDurationMs)
+        cues.forEach { cue -> onCue?.invoke(cue) }
+    }
+
+    /** Runs a stored track back through the scheduler to find where the session had got to. */
+    private fun replayWorkout(points: List<TrackPoint>, advances: String?): WorkoutCursor {
+        val session = workout ?: return WorkoutCursor()
+        val marks = advances?.split(',')?.mapNotNull(String::toLongOrNull).orEmpty().sorted()
+
+        var replayed = WorkoutCursor()
+        var applied = 0
+        var activeMs = 0L
+        var previous: TrackPoint? = null
+
+        points.forEach { point ->
+            previous?.let { before ->
+                val delta = point.timestampMs - before.timestampMs
+                if (point.segment == before.segment && delta in 1..30_000) activeMs += delta
+            }
+            previous = point
+
+            while (applied < marks.size && marks[applied] <= activeMs) {
+                replayed = session.advance(activeMs, point.cumulativeDistanceM, replayed)
+                applied++
+            }
+            replayed = session.evaluate(activeMs, point.cumulativeDistanceM, null, replayed).third
+        }
+        return replayed
+    }
+
     private fun publish() {
         val id = runId ?: return
+        val metrics = accumulator.metrics
         _state.value = RecordingState.Active(
             runId = id,
-            metrics = accumulator.metrics,
+            metrics = metrics,
             splits = currentSplits(),
             startedAtEpochMs = startedAtEpochMs,
+            workout = workout?.progressOf(
+                workoutCursor,
+                metrics.activeDurationMs,
+                metrics.distanceMeters,
+            ),
+            workoutType = workoutType,
         )
     }
 }

@@ -9,16 +9,12 @@ import io.snailrun.data.db.RunEntity
 import io.snailrun.data.prefs.CoachSettings
 import io.snailrun.data.prefs.SettingsRepository
 import io.snailrun.data.repo.RunRepository
-import io.snailrun.domain.coach.CoachRun
 import io.snailrun.domain.coach.Fitness
 import io.snailrun.domain.coach.RaceGoal
-import io.snailrun.domain.coach.RecentEffort
 import io.snailrun.domain.coach.WeekPlan
 import io.snailrun.domain.coach.WeekPlanner
 import java.time.DayOfWeek
-import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneId
 import java.time.temporal.TemporalAdjusters
 import java.time.temporal.WeekFields
 import java.util.Locale
@@ -27,9 +23,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
-
-/** How far ahead the block runs. Four weeks is a training cycle and fits a scroll. */
-const val COACH_WEEKS = 4
 
 data class CoachUiState(
     val weeks: List<WeekPlan> = emptyList(),
@@ -129,30 +122,13 @@ class CoachViewModel(
         efforts: List<PersonalRecord>,
         saved: CoachSettings,
     ): CoachUiState {
-        val coachRuns = runs
-            .mapNotNull { run ->
-                val date = runCatching { LocalDate.parse(run.localDate) }.getOrNull()
-                    ?: return@mapNotNull null
-                CoachRun(date = date, meters = run.distanceMeters, movingMs = run.movingTimeMs)
-            }
-
         val firstDay = firstDayOfWeek()
-        val weekStart = today.with(TemporalAdjusters.previousOrSame(firstDay))
-        val fitness = Fitness.estimate(efforts.map { it.toRecentEffort() }, today)
-        val goal = saved.toGoal()
-
+        val weeks = CoachPlans.block(runs, efforts, saved, today, firstDay)
         return CoachUiState(
-            weeks = WeekPlanner.block(
-                runs = coachRuns,
-                fitness = fitness,
-                goal = goal,
-                firstWeekStart = weekStart,
-                today = today,
-                weeks = COACH_WEEKS,
-                firstDayOfWeek = firstDay,
-                orders = saved.dayOrders.mapKeys { LocalDate.ofEpochDay(it.key) },
-            ),
-            goal = goal,
+            weeks = weeks,
+            goal = saved.targetDistanceMeters?.let { distance ->
+                saved.targetDateEpochDay?.let { RaceGoal(distance, LocalDate.ofEpochDay(it)) }
+            },
             loaded = true,
         )
     }
@@ -163,18 +139,6 @@ class CoachViewModel(
      * with the phone it is running on.
      */
     private fun firstDayOfWeek(): DayOfWeek = WeekFields.of(Locale.getDefault()).firstDayOfWeek
-
-    private fun PersonalRecord.toRecentEffort() = RecentEffort(
-        distanceMeters = distanceMeters,
-        durationMs = durationMs,
-        date = Instant.ofEpochMilli(startedAtEpochMs).atZone(ZoneId.systemDefault()).toLocalDate(),
-    )
-
-    private fun CoachSettings.toGoal(): RaceGoal? {
-        val distance = targetDistanceMeters ?: return null
-        val day = targetDateEpochDay ?: return null
-        return RaceGoal(distance, LocalDate.ofEpochDay(day))
-    }
 
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")

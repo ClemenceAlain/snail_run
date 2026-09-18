@@ -6,7 +6,10 @@ import androidx.lifecycle.viewModelScope
 import io.snailrun.AppContainer
 import io.snailrun.data.export.ExportResult
 import io.snailrun.data.export.GpxExporter
+import io.snailrun.data.db.RunEntity
 import io.snailrun.data.repo.RunRepository
+import io.snailrun.domain.coach.SegmentResult
+import io.snailrun.domain.coach.WorkoutReview
 import io.snailrun.domain.analysis.BestEffortFinder
 import io.snailrun.domain.analysis.TrackProfile
 import io.snailrun.domain.model.LatLon
@@ -48,9 +51,30 @@ class RunDetailViewModel(
                     records = emptyList(),
                 )
             }.collect { state ->
-                _state.value = state.copy(records = recordsHeldBy(runId))
+                _state.value = state.copy(
+                    records = recordsHeldBy(runId),
+                    session = sessionReview(runId, state.run),
+                )
             }
         }
+    }
+
+    /**
+     * The session this run was guided through, against what was actually run in it.
+     *
+     * Worked out here from the stored prescription and the corrected track rather than
+     * recorded as it happened, so a better position filter improves every past session's
+     * figures without anything having to be rewritten.
+     */
+    private suspend fun sessionReview(runId: Long, run: RunEntity?): List<SegmentResult> {
+        if (run?.workoutType == null) return emptyList()
+        val segments = repository.workoutSegmentsFor(runId)
+        if (segments.isEmpty()) return emptyList()
+        val advances = run.workoutAdvancesActiveMs
+            ?.split(',')
+            ?.mapNotNull(String::toLongOrNull)
+            .orEmpty()
+        return WorkoutReview.of(segments, advances, points)
     }
 
     /** Drag on the graph: what did this stretch of the run actually average? */

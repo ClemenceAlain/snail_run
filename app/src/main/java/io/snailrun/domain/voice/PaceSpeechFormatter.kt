@@ -1,5 +1,7 @@
 package io.snailrun.domain.voice
 
+import io.snailrun.domain.coach.WorkoutCue
+import io.snailrun.domain.coach.WorkoutSegment
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
@@ -18,6 +20,17 @@ interface SpeechVocabulary {
     val perKilometre: String                   // "per kilometre"
     fun notice(notice: RunNotice): String      // "paused" / "running again"
     val sentenceSeparator: String get() = ". "
+
+    // ---- structured sessions ----
+    fun repOf(index: Int, count: Int): String  // "rep 3 of 5"
+    fun countdown(seconds: Int): String        // "3"
+    val easeDown: String                       // "ease down"
+    val pickItUp: String                       // "pick it up"
+    val sessionComplete: String                // "session done"
+    val forLabel: String                       // "for"
+    val betweenLabel: String                   // "between"
+    val andLabel: String                       // "and"
+    val nextLabel: String                      // "then"
 }
 
 /**
@@ -30,6 +43,47 @@ interface SpeechVocabulary {
 class PaceSpeechFormatter(private val vocabulary: SpeechVocabulary) {
 
     fun format(notice: RunNotice): String = vocabulary.notice(notice)
+
+    /**
+     * What to say when the session moves on.
+     *
+     * Short on purpose. A runner three minutes into a rep has a heart rate of 170 and can
+     * hold about one clause; the long version is on the screen, where it can be read at a
+     * walk.
+     */
+    fun format(cue: WorkoutCue): String = when (cue) {
+        is WorkoutCue.Countdown -> vocabulary.countdown(cue.seconds)
+        is WorkoutCue.OffPace ->
+            if (cue.tooFast) vocabulary.easeDown else vocabulary.pickItUp
+        WorkoutCue.Finished -> "${vocabulary.sessionComplete}."
+        is WorkoutCue.StepStart -> stepStart(cue.segment)
+    }
+
+    private fun stepStart(segment: WorkoutSegment): String {
+        val parts = mutableListOf<String>()
+
+        parts += if (segment.isRep) {
+            "${vocabulary.repOf(segment.repIndex!!, segment.repCount!!)}${vocabulary.sentenceSeparator}" +
+                segment.label.lowercase()
+        } else {
+            segment.label.lowercase()
+        }
+
+        segment.targetMs?.let { parts += "${vocabulary.forLabel} ${duration(it)}" }
+        segment.targetM?.let { parts += "${vocabulary.forLabel} ${vocabulary.kilometres(it / 1000.0)}" }
+        segment.paceSecPerKm?.let { parts += band(it) }
+
+        return parts.joinToString(vocabulary.sentenceSeparator) + "."
+    }
+
+    /** A collapsed range is one pace; a real one is read as the range it is. */
+    private fun band(range: ClosedFloatingPointRange<Double>): String =
+        if (range.start == range.endInclusive) {
+            pace(range.start)
+        } else {
+            "${vocabulary.betweenLabel} ${pace(range.start)} ${vocabulary.andLabel} " +
+                pace(range.endInclusive)
+        }
 
     fun format(announcement: Announcement): String {
         val parts = mutableListOf<String>()

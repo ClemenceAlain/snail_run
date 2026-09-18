@@ -33,6 +33,7 @@ import androidx.core.content.PermissionChecker
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -102,7 +103,17 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         composable(TopLevel.Coach.route) {
-                            CoachRoute()
+                            CoachRoute(
+                                onRunSession = {
+                                    navController.navigate(TopLevel.Record.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                },
+                            )
                         }
                         composable(TopLevel.Settings.route) {
                             SettingsRoute()
@@ -178,6 +189,11 @@ class MainActivity : ComponentActivity() {
             onResume = { RunRecordingService.resume(this) },
             // The service owns the ordering: it completes the run, then exports it.
             onFinish = { RunRecordingService.finish(this) },
+            todaysSession = ui.todaysSession,
+            armedSession = ui.armedSession,
+            onArmSession = viewModel::armSession,
+            onNextSegment = { RunRecordingService.nextSegment(this) },
+            onEndSession = { RunRecordingService.endSession(this) },
         )
 
         ui.unfinishedRun?.let { unfinished ->
@@ -221,7 +237,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun CoachRoute() {
+    private fun CoachRoute(onRunSession: () -> Unit) {
         val viewModel: CoachViewModel = viewModel(factory = CoachViewModel.Factory(container))
         val ui by viewModel.ui.collectAsStateWithLifecycle()
         CoachScreen(
@@ -230,6 +246,10 @@ class MainActivity : ComponentActivity() {
             onMove = viewModel::move,
             onResetWeek = viewModel::resetWeek,
             onShowWeek = viewModel::showWeek,
+            onRunSession = { workout ->
+                container.armedWorkout = workout
+                onRunSession()
+            },
             today = LocalDate.now(),
         )
     }
@@ -473,6 +493,7 @@ class MainActivity : ComponentActivity() {
                 onCoachTarget = { meters, day ->
                     scope.launch { container.settings.setCoachTarget(meters, day) }
                 },
+                onCoachNudge = { scope.launch { container.settings.setCoachNudgeOffPace(it) } },
                 onDemoEnabled = { scope.launch { container.settings.setDemoEnabled(it) } },
                 onDemoSpeedFactor = { scope.launch { container.settings.setDemoSpeedFactor(it) } },
                 onBackup = { backupPicker.launch(DatabaseBackup.suggestedFileName(nowStamp())) },

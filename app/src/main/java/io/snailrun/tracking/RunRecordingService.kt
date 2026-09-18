@@ -68,6 +68,8 @@ class RunRecordingService : Service() {
             ACTION_RESUME -> scope.launch { container.runRecorder.resume() }
             ACTION_FINISH -> finishRecording()
             ACTION_RECOVER -> recoverRecording(intent.getLongExtra(EXTRA_RUN_ID, -1))
+            ACTION_NEXT_SEGMENT -> scope.launch { container.runRecorder.nextSegment() }
+            ACTION_END_SESSION -> scope.launch { container.runRecorder.endSession() }
         }
 
         // Never sticky. A restart after process death would be a background start of a
@@ -83,7 +85,12 @@ class RunRecordingService : Service() {
             // Read once, at start. A run never switches source halfway through, so the
             // trace a run holds always matches the tag written on it.
             val demo = container.settings.settings.first().demo
-            container.runRecorder.start(if (demo.enabled) SOURCE_DEMO else SOURCE_RECORDED)
+            container.runRecorder.start(
+                source = if (demo.enabled) SOURCE_DEMO else SOURCE_RECORDED,
+                // Taken rather than read: a session is armed for one run, and leaving it
+                // armed would guide the next one through a workout nobody asked for.
+                session = container.armedWorkout.also { container.armedWorkout = null },
+            )
             collectFixes(demo)
         }
     }
@@ -116,6 +123,13 @@ class RunRecordingService : Service() {
         }
         container.runRecorder.onNotice = { notice ->
             container.voiceAnnouncer.speak(notice)
+        }
+        container.runRecorder.onCue = { cue ->
+            // Both channels, always. The voice is the one that says what is happening and
+            // the buzz is the one that gets through a pocket, and which of them a given
+            // runner is relying on is not something this can know.
+            container.voiceAnnouncer.speak(cue)
+            container.haptics.cue(cue)
         }
         container.runRecorder.state
             .onEach { state ->
@@ -182,7 +196,24 @@ class RunRecordingService : Service() {
         val distance = RunFormat.distanceKm(state.metrics.distanceMeters)
         val duration = RunFormat.duration(state.metrics.activeDurationMs)
         val pace = RunFormat.pace(state.metrics.paceSecPerKm)
-        return getString(R.string.notification_progress, distance, duration, pace)
+        val progress = getString(R.string.notification_progress, distance, duration, pace)
+
+        // Where the runner is in the session goes first: it is the line they are pulling
+        // the phone out to read, and the figures are the same three as ever.
+        val workout = state.workout?.takeIf { !it.complete } ?: return progress
+        val step = when {
+            workout.segment.isRep ->
+                getString(
+                    R.string.notification_workout_rep,
+                    workout.segment.label,
+                    workout.segment.repIndex!!,
+                    workout.segment.repCount!!,
+                )
+            else -> workout.segment.label
+        }
+        val left = workout.remainingMs?.let { RunFormat.duration(it) }
+            ?: workout.remainingM?.let { "${RunFormat.distanceKm(it)} km" }
+        return if (left == null) "$step · $progress" else "$step · $left · $progress"
     }
 
     private fun buildNotification(text: String): Notification {
@@ -221,6 +252,7 @@ class RunRecordingService : Service() {
         try {
             container.runRecorder.onAnnouncement = null
             container.runRecorder.onNotice = null
+            container.runRecorder.onCue = null
             scope.cancel()
         } finally {
             wakeLock?.takeIf { it.isHeld }?.release()
@@ -255,12 +287,16 @@ class RunRecordingService : Service() {
         const val ACTION_RESUME = "io.snailrun.action.RESUME"
         const val ACTION_FINISH = "io.snailrun.action.FINISH"
         const val ACTION_RECOVER = "io.snailrun.action.RECOVER"
+        const val ACTION_NEXT_SEGMENT = "io.snailrun.action.NEXT_SEGMENT"
+        const val ACTION_END_SESSION = "io.snailrun.action.END_SESSION"
         const val EXTRA_RUN_ID = "runId"
 
         fun start(context: Context) = send(context, ACTION_START)
         fun pause(context: Context) = send(context, ACTION_PAUSE)
         fun resume(context: Context) = send(context, ACTION_RESUME)
         fun finish(context: Context) = send(context, ACTION_FINISH)
+        fun nextSegment(context: Context) = send(context, ACTION_NEXT_SEGMENT)
+        fun endSession(context: Context) = send(context, ACTION_END_SESSION)
 
         fun recover(context: Context, runId: Long) {
             context.startForegroundService(

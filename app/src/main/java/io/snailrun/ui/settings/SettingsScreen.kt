@@ -62,6 +62,7 @@ data class SettingsActions(
     val onRemoveBasemap: () -> Unit,
     /** Distance and date together, or both null to clear the target. */
     val onCoachTarget: (Int?, Long?) -> Unit,
+    val onCoachNudge: (Boolean) -> Unit,
     val onDemoEnabled: (Boolean) -> Unit,
     val onDemoSpeedFactor: (Int) -> Unit,
     val onBackup: () -> Unit,
@@ -236,12 +237,24 @@ fun SettingsScreen(
                 "The Coach tab plans four weeks from the runs you have already done. It " +
                     "needs nothing set here — without a race it builds steadily, which is " +
                     "what most of a year looks like.",
+                "Load a session on the record screen and the app counts you through it, " +
+                    "out loud and with a buzz at every change of step.",
+                "The off-pace warning reads smoothed GPS pace, which wanders under trees " +
+                    "and round corners. It waits twenty seconds and speaks at most once a " +
+                    "minute, and it is off until you ask for it.",
                 "With a race set, the plan counts back from the date: it builds until four " +
                     "weeks out, sharpens inside that, and tapers the last fortnight.",
             ),
         )
 
         SnailCard(modifier = Modifier.fillMaxWidth()) {
+            SwitchRow(
+                label = "Tell me when I drift off pace",
+                checked = settings.coach.nudgeOffPace,
+                onCheckedChange = actions.onCoachNudge,
+            )
+
+            Spacer(Modifier.height(Spacing.l))
             Text("Training for", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(Spacing.s))
             ChipRow {

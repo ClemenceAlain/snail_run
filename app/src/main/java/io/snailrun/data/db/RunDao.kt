@@ -91,6 +91,15 @@ interface RunDao {
         insertBestEfforts(efforts)
     }
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertWorkoutSegments(segments: List<WorkoutSegmentEntity>)
+
+    @Query("SELECT * FROM workout_segments WHERE runId = :runId ORDER BY segmentIndex")
+    suspend fun workoutSegmentsFor(runId: Long): List<WorkoutSegmentEntity>
+
+    @Query("SELECT * FROM workout_segments WHERE runId = :runId ORDER BY segmentIndex")
+    fun observeWorkoutSegments(runId: Long): Flow<List<WorkoutSegmentEntity>>
+
     @Query("SELECT * FROM runs WHERE id = :id")
     suspend fun runById(id: Long): RunEntity?
 

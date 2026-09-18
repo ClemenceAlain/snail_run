@@ -3,6 +3,8 @@ package io.snailrun
 import android.content.Context
 import io.snailrun.data.backup.DatabaseBackup
 import io.snailrun.data.basemap.BasemapStore
+import io.snailrun.data.haptics.AndroidHaptics
+import io.snailrun.data.haptics.Haptics
 import io.snailrun.data.db.SnailDatabase
 import io.snailrun.data.location.DemoLocationSource
 import io.snailrun.data.location.LocationSource
@@ -13,6 +15,7 @@ import io.snailrun.data.repo.RunRepository
 import io.snailrun.data.voice.AndroidVoiceAnnouncer
 import io.snailrun.data.voice.ResourceSpeechVocabulary
 import io.snailrun.data.voice.VoiceAnnouncer
+import io.snailrun.domain.coach.Workout
 import io.snailrun.domain.voice.PaceSpeechFormatter
 import io.snailrun.tracking.RecordingState
 import io.snailrun.tracking.RunRecorder
@@ -57,6 +60,18 @@ class AppContainer(private val context: Context) {
         }
 
     val basemapStore: BasemapStore by lazy { BasemapStore(context, settings) }
+
+    val haptics: Haptics by lazy { AndroidHaptics(context) }
+
+    /**
+     * A session chosen but not yet started.
+     *
+     * In memory on purpose. The recorder and the screen that arms this share one process,
+     * the gap between choosing a session and pressing Start is seconds, and if the process
+     * dies inside it the runner gets an ordinary run rather than a wrong one — which is
+     * cheaper than a serialisation format nothing else needs.
+     */
+    var armedWorkout: Workout? = null
 
     /**
      * The database is handed over as a lambda rather than as a value: a restore closes it

@@ -6,6 +6,11 @@ import io.snailrun.data.db.SnailDatabase
 import io.snailrun.data.prefs.SettingsRepository
 import io.snailrun.data.repo.RunRepository
 import io.snailrun.data.repo.SOURCE_DEMO
+import io.snailrun.domain.coach.SegmentKind
+import io.snailrun.domain.coach.Workout
+import io.snailrun.domain.coach.WorkoutCue
+import io.snailrun.domain.coach.WorkoutStep
+import io.snailrun.domain.coach.WorkoutType
 import io.snailrun.domain.demo.DemoRoute
 import io.snailrun.domain.demo.DemoRunProfile
 import io.snailrun.domain.fixtures.Traces
@@ -86,6 +91,144 @@ class RunRecorderTest {
             recorder.onFix(fix)
         }
         return checkNotNull(recorder.finish()) { "the run should have been in progress" }
+    }
+
+    // ---- structured sessions -----------------------------------------------------------
+
+    /** Warm up 600 m, 3 x (1 min hard, 1 min jog), cool down 600 m. */
+    private val session = Workout(
+        type = WorkoutType.Intervals,
+        totalMeters = 2_400.0,
+        qualityMeters = 540.0,
+        reason = "because",
+        steps = listOf(
+            WorkoutStep("Warm up", distanceM = 600.0, paceSecPerKm = 330.0..360.0),
+            WorkoutStep(
+                "Hard, equal jog between",
+                repeats = 3,
+                durationMs = 60_000,
+                paceSecPerKm = 240.0..240.0,
+                recoveryMs = 60_000,
+                recoveryPaceSecPerKm = 360.0..390.0,
+            ),
+            WorkoutStep("Cool down", distanceM = 600.0, paceSecPerKm = 330.0..360.0),
+        ),
+    )
+
+    private suspend fun guidedRun(seconds: Int, cues: MutableList<WorkoutCue>): Long {
+        recorder.onCue = { cues += it }
+        val id = recorder.start(session = session)
+        Traces.steadyRun(seconds = seconds, speedMps = 3.0).forEach { fix ->
+            clock.nowMs = fix.epochMs
+            recorder.onFix(fix)
+        }
+        return id
+    }
+
+    @Test
+    fun `a guided run is counted through its session and stores what it was`() = runTest {
+        val cues = mutableListOf<WorkoutCue>()
+        // 600 m at 3 m/s is 200 s, then six 60 s steps, then 200 s: 760 s in all.
+        val id = guidedRun(seconds = 800, cues = cues)
+        recorder.finish()
+
+        val run = repository.observeRun(id).first()!!
+        assertEquals(WorkoutType.Intervals.name, run.workoutType)
+
+        // Warm-up, three reps, two jogs, cool-down.
+        val stored = repository.workoutSegmentsFor(id)
+        assertEquals(7, stored.size)
+        assertEquals(3, stored.count { it.kind == SegmentKind.Work })
+        assertEquals(2, stored.count { it.kind == SegmentKind.Recover })
+
+        val starts = cues.filterIsInstance<WorkoutCue.StepStart>()
+        assertEquals(7, starts.size)
+        assertEquals("Warm up", starts.first().segment.label)
+        assertEquals(listOf(1, 2, 3), starts.filter { it.segment.isRep }.map { it.segment.repIndex })
+        assertTrue("the session never finished", cues.any { it is WorkoutCue.Finished })
+    }
+
+    /**
+     * The engine speaks one utterance at a time and the newest wins, so a kilometre
+     * milestone landing on the same second as a rep change would cut the rep cue off
+     * mid-sentence.
+     */
+    @Test
+    fun `a kilometre milestone does not talk over a step change`() = runTest {
+        // Every 200 m, so milestones and step changes are constantly colliding.
+        settings.setAnnounceEveryMeters(200.0)
+
+        val cueTimes = mutableListOf<Long>()
+        val spokenTimes = mutableListOf<Long>()
+        recorder.onCue = { cueTimes += activeMs() }
+        recorder.onAnnouncement = { spokenTimes += it.activeDurationMs }
+
+        val id = recorder.start(session = session)
+        Traces.steadyRun(seconds = 800, speedMps = 3.0).forEach { fix ->
+            clock.nowMs = fix.epochMs
+            recorder.onFix(fix)
+        }
+        recorder.finish()
+
+        assertTrue("nothing was announced at all", spokenTimes.isNotEmpty())
+        assertTrue("nothing was cued at all", cueTimes.isNotEmpty())
+        spokenTimes.forEach { spoken ->
+            val crowded = cueTimes.any { cue -> spoken >= cue && spoken - cue < 20_000 }
+            assertTrue("an announcement at $spoken landed on top of a cue", !crowded)
+        }
+    }
+
+    private fun activeMs(): Long =
+        (recorder.state.value as? RecordingState.Active)?.metrics?.activeDurationMs ?: 0L
+
+    @Test
+    fun `an ordinary run is guided through nothing`() = runTest {
+        val cues = mutableListOf<WorkoutCue>()
+        recorder.onCue = { cues += it }
+        val id = runFixture(seconds = 300)
+
+        assertTrue(cues.isEmpty())
+        assertNull(repository.observeRun(id).first()!!.workoutType)
+        assertTrue(repository.workoutSegmentsFor(id).isEmpty())
+    }
+
+    @Test
+    fun `pressing next ends the step and is remembered on the run`() = runTest {
+        val cues = mutableListOf<WorkoutCue>()
+        recorder.onCue = { cues += it }
+        val id = recorder.start(session = session)
+
+        Traces.steadyRun(seconds = 60, speedMps = 3.0).forEach { fix ->
+            clock.nowMs = fix.epochMs
+            recorder.onFix(fix)
+        }
+        // 180 m in: the warm-up had 600 m to run, so this is a skip.
+        recorder.nextSegment()
+
+        val run = repository.observeRun(id).first()!!
+        assertNotNull("the skip was not written down", run.workoutAdvancesActiveMs)
+        val state = recorder.state.value as RecordingState.Active
+        assertEquals("Hard", state.workout!!.segment.label)
+    }
+
+    /**
+     * Where the runner had got to is never stored. It is rebuilt by running the track
+     * back through the same scheduler, which is only true if the two agree exactly.
+     */
+    @Test
+    fun `a recovered run resumes on the step it was on`() = runTest {
+        val cues = mutableListOf<WorkoutCue>()
+        val id = guidedRun(seconds = 320, cues = cues)
+        val before = (recorder.state.value as RecordingState.Active).workout!!
+
+        // The process dies here: no finish, and a fresh recorder on the next launch.
+        val revived = RunRecorder(repository = repository, settings = settings, clock = clock)
+        assertTrue(revived.recover(id))
+
+        val after = (revived.state.value as RecordingState.Active).workout!!
+        assertEquals(before.segment.index, after.segment.index)
+        assertEquals(before.segment.label, after.segment.label)
+        assertEquals(before.segment.repIndex, after.segment.repIndex)
     }
 
     @Test

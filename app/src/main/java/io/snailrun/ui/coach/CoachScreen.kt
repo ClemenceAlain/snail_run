@@ -43,6 +43,7 @@ import io.snailrun.domain.coach.Confidence
 import io.snailrun.domain.coach.PlannedDay
 import io.snailrun.domain.coach.Races
 import io.snailrun.domain.coach.WeekPlan
+import io.snailrun.domain.coach.Workout
 import io.snailrun.domain.coach.WorkoutStep
 import io.snailrun.domain.coach.WorkoutType
 import io.snailrun.R
@@ -97,6 +98,7 @@ fun CoachScreen(
     onMove: (LocalDate, Int, Int) -> Unit,
     onResetWeek: (LocalDate) -> Unit,
     onShowWeek: (Int) -> Unit,
+    onRunSession: (Workout) -> Unit,
     today: LocalDate,
     modifier: Modifier = Modifier,
 ) {
@@ -151,6 +153,7 @@ fun CoachScreen(
                 expanded = state.expanded,
                 onExpand = onExpand,
                 onMove = { from, to -> onMove(plan.weekStart, from, to) },
+                onRunSession = onRunSession,
             )
         }
 
@@ -181,6 +184,7 @@ private fun DraggableWeek(
     expanded: LocalDate?,
     onExpand: (LocalDate) -> Unit,
     onMove: (Int, Int) -> Unit,
+    onRunSession: (Workout) -> Unit,
 ) {
     val heights = remember(plan.weekStart) { mutableStateMapOf<Int, Int>() }
     var dragFrom by remember(plan.weekStart) { mutableIntStateOf(-1) }
@@ -218,6 +222,7 @@ private fun DraggableWeek(
                 // changes height mid-drag moves the ground under the finger.
                 expanded = !dragging && expanded == day.date,
                 lifted = isDragged,
+                onRunSession = onRunSession,
                 onClick = {
                     if (swallowClick) swallowClick = false else onExpand(day.date)
                 },
@@ -437,6 +442,7 @@ private fun DayRow(
     today: LocalDate,
     expanded: Boolean,
     lifted: Boolean,
+    onRunSession: (Workout) -> Unit,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -516,6 +522,9 @@ private fun DayRow(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (!rest) {
+                    TextButton(onClick = { onRunSession(day.workout) }) { Text("Run this") }
+                }
             }
         }
     }

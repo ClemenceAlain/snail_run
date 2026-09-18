@@ -44,6 +44,21 @@ data class RunEntity(
      * re-derived from the raw track on next launch.
      */
     val smootherVersion: Int = 0,
+    /**
+     * The session this run was guided through, or null — which is most runs.
+     *
+     * The prescription itself is in `workout_segments`; this is here so a row knows it
+     * had one without a join, and so the history list can badge it.
+     */
+    val workoutType: String? = null,
+    /**
+     * Active-duration marks where the runner pressed Next, comma-separated.
+     *
+     * The only part of a guided run that cannot be worked out again from the track. Where
+     * each segment ended is arithmetic; the runner deciding they were done with one is
+     * not. Almost always null.
+     */
+    val workoutAdvancesActiveMs: String? = null,
 )
 
 @Entity(
@@ -115,4 +130,37 @@ data class BestEffortEntity(
     val startSeq: Int,
     val endSeq: Int,
     val startOffsetMs: Long,
+)
+
+/**
+ * One segment of the session a run was guided through, as it was prescribed.
+ *
+ * Written once when the run starts, and never touched again. It has to be stored rather
+ * than recomputed from the coach: the plan is rebuilt from the history every time it is
+ * shown, so by next week the session this run was is not one the coach would still write.
+ */
+@Entity(
+    tableName = "workout_segments",
+    primaryKeys = ["runId", "segmentIndex"],
+    foreignKeys = [
+        ForeignKey(
+            entity = RunEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["runId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+data class WorkoutSegmentEntity(
+    val runId: Long,
+    val segmentIndex: Int,
+    val label: String,
+    val kind: String,
+    /** Exactly one of these is set: a segment ends on a time or on a distance. */
+    val targetMs: Long?,
+    val targetM: Double?,
+    val paceLowSecPerKm: Double?,
+    val paceHighSecPerKm: Double?,
+    val repIndex: Int?,
+    val repCount: Int?,
 )

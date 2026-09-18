@@ -3,6 +3,8 @@ package io.snailrun.data.repo
 import io.snailrun.data.db.RunDao
 import io.snailrun.data.db.RunEntity
 import io.snailrun.domain.analysis.BestEffortFinder
+import io.snailrun.domain.coach.WorkoutSegment
+import io.snailrun.domain.coach.WorkoutType
 import io.snailrun.domain.analysis.SplitCalculator
 import io.snailrun.domain.geo.TrackSmoother
 import io.snailrun.domain.metrics.RunMetrics
@@ -86,6 +88,35 @@ class RunRepository(
                 status = STATUS_RECORDING,
             )
         )
+    }
+
+    /**
+     * Writes the session a run is being guided through.
+     *
+     * Stored rather than looked up later: the coach rebuilds its plan from the history
+     * every time it is shown, so by next week the session this run was is not one it
+     * would still write. What was asked of the runner has to be kept if the run's own
+     * screen is ever to say whether they did it.
+     */
+    suspend fun attachWorkout(runId: Long, type: WorkoutType, segments: List<WorkoutSegment>) {
+        if (segments.isEmpty()) return
+        val run = dao.runById(runId) ?: return
+        dao.updateRun(run.copy(workoutType = type.name))
+        dao.insertWorkoutSegments(segments.map { it.toEntity(runId) })
+    }
+
+    suspend fun workoutSegmentsFor(runId: Long): List<WorkoutSegment> =
+        dao.workoutSegmentsFor(runId).map { it.toDomain() }
+
+    fun observeWorkoutSegments(runId: Long) =
+        dao.observeWorkoutSegments(runId).map { rows -> rows.map { it.toDomain() } }
+
+    /** Remembers that the runner cut a segment short. See [RunEntity.workoutAdvancesActiveMs]. */
+    suspend fun recordWorkoutAdvance(runId: Long, activeMs: Long) {
+        val run = dao.runById(runId) ?: return
+        val marks = (run.workoutAdvancesActiveMs?.split(',').orEmpty() + activeMs.toString())
+            .filter { it.isNotBlank() }
+        dao.updateRun(run.copy(workoutAdvancesActiveMs = marks.joinToString(",")))
     }
 
     suspend fun appendPoints(runId: Long, points: List<TrackPoint>) {

@@ -355,6 +355,46 @@ The taper cuts volume and leaves the intensity alone — cutting both is what ma
 runner arrive rested and flat. It also shows what the distance would take at today's
 fitness, which is a reading and not a target.
 
+### Running the session
+
+The coach's prescription is only half of it. Load a session — **Run this** on a day in the
+Coach tab, or **Load** on the record screen, which offers today's — and the app counts you
+through it.
+
+Each step is named when it starts, out loud and with a buzz: one long pulse into a hard
+step, two short ones into a recovery, a pair at the end. Time steps get a spoken three,
+two, one into the change. The screen shows the step, the rep number, the target pace and
+what is left of it; the notification carries the same line, because that is what you pull
+the phone out to read.
+
+- **A step ends on active duration or on distance**, whichever it was prescribed in.
+  Standing at a light does not burn a rep — the clock that counts it is the same one that
+  stops when you stop.
+- **Boundaries are tested on a fix**, about once a second. There is no timer anywhere in
+  this app and this did not add one: a timer would end a rep you were not moving through.
+  A step therefore changes on the first fix past its end, and a step whose end falls inside
+  a dropout hands the overshoot to the next one, so five reps cannot quietly become five
+  reps and five seconds.
+- **NEXT** ends a step where you are standing — you crested the hill early — and **END
+  SESSION** drops the guidance and keeps recording.
+- **Off-pace warnings are off by default.** The pace they read is smoothed GPS, which
+  wanders ten seconds a kilometre under trees, so they need twenty continuous seconds
+  outside the band, a step longer than ninety seconds, and they speak at most once a
+  minute. Without every one of those they are the setting that gets the whole voice turned
+  off.
+
+Afterwards the run's own screen shows the session against what you ran: every step, its
+target, its actual pace and the difference. That table is worked out from the stored track
+each time it is opened rather than written down during the run, so improving the position
+filter improves every past session with it.
+
+What *is* stored is the prescription — the plan is rebuilt from your history every week, so
+by next week the session this run was is not one the coach would still write — and the
+handful of times you pressed NEXT, which is the one thing about a guided run that cannot
+be worked out again. Where you had got to is not stored: after a crash it is rebuilt by
+running the track back through the same scheduler, and `RunRecorderTest` checks the two
+agree.
+
 **Nothing about a plan is stored** except where you have moved something. It is
 recomputed from the history every time the tab is opened, so it cannot claim on Saturday
 that you still owe it a tempo you have since run. Completion is inferred the same way: a

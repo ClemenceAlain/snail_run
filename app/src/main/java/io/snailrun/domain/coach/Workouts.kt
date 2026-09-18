@@ -44,6 +44,17 @@ data class WorkoutStep(
     val distanceM: Double? = null,
     val durationMs: Long? = null,
     val paceSecPerKm: ClosedFloatingPointRange<Double>? = null,
+    /**
+     * The jog between reps.
+     *
+     * Its distance was always counted in [Workout.totalMeters] — a session is what the
+     * legs carry, and the jog is most of the time on them. It just was not written down
+     * anywhere but the label, which is fine for a line on a screen and useless to
+     * anything that has to count the runner through it.
+     */
+    val recoveryMs: Long? = null,
+    val recoveryM: Double? = null,
+    val recoveryPaceSecPerKm: ClosedFloatingPointRange<Double>? = null,
 )
 
 data class Workout(
@@ -213,6 +224,8 @@ object Workouts {
                     durationMs = repMs,
                     distanceM = repMeters,
                     paceSecPerKm = single(paces.thresholdSecPerKm),
+                    recoveryMs = 2 * 60_000L,
+                    recoveryPaceSecPerKm = jog(paces),
                 ),
                 coolDown(trim, paces),
             ),
@@ -241,6 +254,8 @@ object Workouts {
                     durationMs = repMs,
                     distanceM = repMeters,
                     paceSecPerKm = single(paces.intervalSecPerKm),
+                    recoveryMs = repMs,
+                    recoveryPaceSecPerKm = jog(paces),
                 ),
                 coolDown(trim, paces),
             ),
@@ -269,7 +284,15 @@ object Workouts {
             qualityMeters = meters,
             steps = listOf(
                 warmUp(trim, paces),
-                WorkoutStep("Uphill hard, jog down", repeats = reps, durationMs = repMs),
+                WorkoutStep(
+                    "Uphill hard, jog down",
+                    repeats = reps,
+                    durationMs = repMs,
+                    // The way down is the way up, so the jog is a distance and not a
+                    // time: how long it takes is the runner's business.
+                    recoveryM = repMeters,
+                    recoveryPaceSecPerKm = jog(paces),
+                ),
                 coolDown(trim, paces),
             ),
             reason = reason,
@@ -293,6 +316,8 @@ object Workouts {
                     repeats = reps,
                     durationMs = repMs,
                     paceSecPerKm = single(paces.intervalSecPerKm),
+                    recoveryMs = repMs,
+                    recoveryPaceSecPerKm = jog(paces),
                 ),
                 coolDown(trim, paces),
             ),
@@ -317,6 +342,8 @@ object Workouts {
                     repeats = reps,
                     distanceM = repMeters,
                     paceSecPerKm = single(paces.repetitionSecPerKm),
+                    recoveryM = 400.0,
+                    recoveryPaceSecPerKm = jog(paces),
                 ),
                 coolDown(trim, paces),
             ),
@@ -340,4 +367,8 @@ object Workouts {
         (meters / 1000.0 * paceSecPerKm * 1000.0).roundToLong()
 
     private fun single(pace: Double) = pace..pace
+
+    /** Recovery is run at the slow end of easy, or it is not recovery. */
+    private fun jog(paces: TrainingPaces) =
+        paces.easySecPerKm.endInclusive..(paces.easySecPerKm.endInclusive + 30.0)
 }
