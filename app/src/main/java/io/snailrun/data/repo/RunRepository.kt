@@ -232,6 +232,8 @@ class RunRepository(
 
     fun observePersonalRecord(distanceMeters: Int) = dao.observePersonalRecord(distanceMeters)
 
+    fun observeRecentEfforts(since: String) = dao.observeRecentEfforts(since)
+
     fun observeDailyTotals(from: String, to: String) = dao.observeDailyTotals(from, to)
 
     fun observeMonthlyTotals() = dao.observeMonthlyTotals()

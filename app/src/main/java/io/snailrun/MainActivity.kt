@@ -46,6 +46,8 @@ import io.snailrun.data.prefs.Settings as AppSettings
 import io.snailrun.tracking.RecordingState
 import io.snailrun.tracking.RunRecordingService
 import io.snailrun.data.basemap.BasemapInstall
+import io.snailrun.ui.coach.CoachScreen
+import io.snailrun.ui.coach.CoachViewModel
 import io.snailrun.ui.components.BasemapLayer
 import io.snailrun.ui.detail.RunDetailActions
 import io.snailrun.ui.detail.RunDetailScreen
@@ -67,6 +69,7 @@ import io.snailrun.ui.settings.SettingsActions
 import io.snailrun.ui.settings.SettingsScreen
 import io.snailrun.ui.theme.SnailRunTheme
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -97,6 +100,9 @@ class MainActivity : ComponentActivity() {
                             HistoryRoute(
                                 onOpenRun = { navController.navigate(runDetailRoute(it)) },
                             )
+                        }
+                        composable(TopLevel.Coach.route) {
+                            CoachRoute()
                         }
                         composable(TopLevel.Settings.route) {
                             SettingsRoute()
@@ -211,6 +217,17 @@ class MainActivity : ComponentActivity() {
             onSelectDate = viewModel::selectDate,
             onShowMonth = viewModel::showMonth,
             onSetProgressPeriod = viewModel::setProgressPeriod,
+        )
+    }
+
+    @Composable
+    private fun CoachRoute() {
+        val viewModel: CoachViewModel = viewModel(factory = CoachViewModel.Factory(container))
+        val ui by viewModel.ui.collectAsStateWithLifecycle()
+        CoachScreen(
+            state = ui,
+            onExpand = viewModel::expand,
+            today = LocalDate.now(),
         )
     }
 
@@ -450,6 +467,9 @@ class MainActivity : ComponentActivity() {
                 // de-Googled builds hide anything they cannot name.
                 onChooseBasemap = { basemapPicker.launch(arrayOf("*/*")) },
                 onRemoveBasemap = { scope.launch { container.basemapStore.remove() } },
+                onCoachTarget = { meters, day ->
+                    scope.launch { container.settings.setCoachTarget(meters, day) }
+                },
                 onDemoEnabled = { scope.launch { container.settings.setDemoEnabled(it) } },
                 onDemoSpeedFactor = { scope.launch { container.settings.setDemoSpeedFactor(it) } },
                 onBackup = { backupPicker.launch(DatabaseBackup.suggestedFileName(nowStamp())) },

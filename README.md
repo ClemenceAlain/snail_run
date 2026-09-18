@@ -21,12 +21,15 @@ network socket. Nothing it records can leave the device.
 - Draws the trace on an offline map, and opens it full screen to drag, pinch and
   double-tap around. A small demo map is in the APK, so that works before you supply
   one.
+- Suggests the coming week's training from the runs already recorded: named sessions,
+  paces derived from your own best efforts, and volume that cannot ramp faster than is
+  safe. Optionally counts back from a race date.
 - Backs every run up to one file you choose, and puts one back.
 - Survives being killed mid-run: the track is in the database, and the app offers to
   finish or continue it on next launch.
 
 Nothing is planned next. The Runs tab's four modes — list, calendar, progress, records —
-and the run's own screen cover what the app set out to do.
+the Coach tab and the run's own screen cover what the app set out to do.
 
 ## Demo mode
 
@@ -211,10 +214,10 @@ the announcement schedule — run under plain JUnit with no device and no emulat
 
 ```
 io.snailrun
-├── domain/     geo, metrics, analysis, voice, gpx, demo  (pure Kotlin, tested)
+├── domain/     geo, metrics, analysis, coach, voice, gpx, demo  (pure Kotlin, tested)
 ├── data/       db, prefs, location, repo, export, voice
 ├── tracking/   RunRecorder, RunRecordingService
-└── ui/         theme, components, record, history, detail, settings
+└── ui/         theme, components, record, history, coach, detail, settings
 ```
 
 A few decisions worth knowing before changing things:
@@ -270,6 +273,63 @@ Runs carry the filter version they were derived with. Raise `TrackSmoother.VERSI
 on next launch every run recorded under an older version is re-derived from its raw
 positions: cumulative distances, totals, splits and records all rewritten. The latitudes
 and longitudes are never touched — they are the record of what the chip said.
+
+## Coaching
+
+The Coach tab suggests the week's training, built from the runs already in the database.
+There is no model in it. Every number is arithmetic with a reason attached, and the
+reason is on the screen beside it.
+
+**Paces come from Daniels and Gilbert's equations.** A distance and a time give an oxygen
+cost; the length of the effort gives the fraction of maximum it was held at; dividing one
+by the other gives a VO2max, and every training pace is a percentage of it. `VdotTest`
+checks all five against Daniels' published table at VDOT 50 — the row a 20:00 5 k lands
+on — so a drift of fifteen seconds a kilometre fails the build rather than turning up on
+somebody's interval session.
+
+**The effort it reads is the longest recent one, not the fastest.** These are not race
+results: they are the quickest stretch the app could find inside a training run, and a
+1 km one is usually a surge to a crossing or a single rep. Read as a time trial it
+overstates what the runner can hold and every pace comes out too fast. So efforts of 5 km
+and up are trusted, and where none exists the estimate is marked provisional — which buys
+easy and threshold work and refuses to price an interval session at all. The bias that
+leaves is deliberate: an effort pulled from a training run under-reads fitness far more
+often than it over-reads it, and easy is the mistake you recover from on the next run.
+
+**The sessions are the named ones**: easy, recovery, long, progression, steady, tempo,
+cruise intervals, intervals, hill repeats, fartlek, strides and repetitions. Which two a
+week gets rotates on the week number, so the plan varies without ever being random —
+the same history always produces the same week, which is what lets the tests assert one.
+
+The rules that exist so a suggestion cannot injure someone, all of them assertions in
+`WeekPlannerTest`:
+
+- **Volume rises by at most ten per cent of last week, and never past 1.3× the four-week
+  average.** The second cap is the one that matters. The ten-per-cent rule compounds a
+  spike; the ratio refuses to. Past 1.5× the week is held level and stripped of quality.
+- **The long run is capped twice** — a share of the week *and* 1.1× the longest run of
+  the last four weeks. A runner whose 50 km weeks are made of 8 km runs does not get a
+  15 km Sunday because the arithmetic allowed it.
+- **Hard running is capped as a fraction of the week**: threshold 10 %, interval 8 %,
+  repetition 5 %, marathon pace 20 %. Sessions are shortened to fit the cap; the week is
+  never lengthened to fit a session.
+- **No two hard days touch**, the long run included.
+- **Frequency is never increased.** How many days a week someone runs is a decision about
+  their life, and the coach works inside it.
+- Three rising weeks produce a cutback; a fortnight off produces a return-to-running week
+  at sixty per cent; under three runs in four weeks produces a base week and says so.
+
+**A race is optional.** Settings → Coach takes a distance and a date, and the plan then
+counts back from it: build past four weeks out, sharpen inside four, taper inside two.
+The taper cuts volume and leaves the intensity alone — cutting both is what makes a
+runner arrive rested and flat. It also shows what the distance would take at today's
+fitness, which is a reading and not a target.
+
+**Nothing about a plan is stored.** It is recomputed from the history every time the tab
+is opened, so it cannot claim on Saturday that you still owe it a tempo you have since
+run. Completion is inferred the same way: a run recorded on a planned day strikes that
+day through. Demo runs are excluded throughout, as they are from records — a synthetic
+trace is not evidence about a person's legs.
 
 ## Auto-pause
 

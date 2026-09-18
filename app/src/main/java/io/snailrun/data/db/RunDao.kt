@@ -163,6 +163,31 @@ interface RunDao {
     fun observePersonalRecord(distanceMeters: Int): Flow<PersonalRecord?>
 
     /**
+     * Every stored best effort from the recent past, for the coach to price training
+     * paces from.
+     *
+     * Not one query per distance like [observePersonalRecord]: the coach wants the best
+     * *recent* effort at each distance rather than the best ever, and a personal record
+     * set eighteen months ago would have it prescribing paces from a fitness the runner
+     * no longer has. Demo runs are excluded here for the same reason they are excluded
+     * from records — a synthetic trace is not evidence about a person.
+     */
+    @Query(
+        """
+        SELECT be.distanceMeters AS distanceMeters,
+               be.durationMs AS durationMs,
+               be.runId AS runId,
+               r.startedAtEpochMs AS startedAtEpochMs
+        FROM best_efforts be
+        JOIN runs r ON r.id = be.runId
+        WHERE r.status = 'COMPLETE'
+          AND r.source != 'DEMO'
+          AND r.localDate >= :since
+        """
+    )
+    fun observeRecentEfforts(since: String): Flow<List<PersonalRecord>>
+
+    /**
      * Finished runs whose figures predate the current position filter. Ids only: the
      * tracks are large and are read one run at a time.
      */

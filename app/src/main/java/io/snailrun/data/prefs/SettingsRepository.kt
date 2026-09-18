@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import io.snailrun.domain.voice.VoiceConfig
@@ -27,6 +28,20 @@ data class Settings(
     /** Local basemap file. Absent means runs are drawn as a plain trace. */
     val basemapUri: String? = null,
     val demo: DemoSettings = DemoSettings(),
+    val coach: CoachSettings = CoachSettings(),
+)
+
+/**
+ * A race to train towards, if there is one.
+ *
+ * Both fields null is the normal state and a supported one: without a target the coach
+ * plans a balanced week off the runner's own history, which is what most people want
+ * most of the year. The date is stored as an epoch day rather than a string because the
+ * only thing ever done with it is arithmetic against another date.
+ */
+data class CoachSettings(
+    val targetDistanceMeters: Int? = null,
+    val targetDateEpochDay: Long? = null,
 )
 
 /**
@@ -74,6 +89,20 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setDemoSpeedFactor(factor: Int) = edit { it[DEMO_SPEED_FACTOR] = factor }
 
+    /**
+     * Set together, cleared together. A distance with no date cannot be periodised and a
+     * date with no distance cannot be predicted, so neither half is a state worth having.
+     */
+    suspend fun setCoachTarget(distanceMeters: Int?, dateEpochDay: Long?) = edit {
+        if (distanceMeters == null || dateEpochDay == null) {
+            it.remove(COACH_TARGET_DISTANCE)
+            it.remove(COACH_TARGET_DATE)
+        } else {
+            it[COACH_TARGET_DISTANCE] = distanceMeters
+            it[COACH_TARGET_DATE] = dateEpochDay
+        }
+    }
+
     suspend fun setBasemapUri(uri: String?) = edit {
         if (uri == null) it.remove(BASEMAP_URI) else it[BASEMAP_URI] = uri
     }
@@ -101,6 +130,10 @@ class SettingsRepository(private val context: Context) {
             enabled = this[DEMO_ENABLED] ?: false,
             speedFactor = this[DEMO_SPEED_FACTOR] ?: 30,
         ),
+        coach = CoachSettings(
+            targetDistanceMeters = this[COACH_TARGET_DISTANCE],
+            targetDateEpochDay = this[COACH_TARGET_DATE],
+        ),
     )
 
     private companion object {
@@ -118,5 +151,7 @@ class SettingsRepository(private val context: Context) {
         val BASEMAP_URI = stringPreferencesKey("basemap_uri")
         val DEMO_ENABLED = booleanPreferencesKey("demo_enabled")
         val DEMO_SPEED_FACTOR = intPreferencesKey("demo_speed_factor")
+        val COACH_TARGET_DISTANCE = intPreferencesKey("coach_target_distance")
+        val COACH_TARGET_DATE = longPreferencesKey("coach_target_date")
     }
 }

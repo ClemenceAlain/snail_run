@@ -1,0 +1,545 @@
+package io.snailrun.domain.coach
+
+import java.time.DayOfWeek
+import java.time.LocalDate
+import kotlin.math.min
+import kotlin.math.roundToInt
+
+data class PlannedDay(
+    val date: LocalDate,
+    val workout: Workout,
+    /** A run was recorded on this day. Inferred, not ticked off — see [WeekPlanner]. */
+    val done: Boolean = false,
+)
+
+data class WeekPlan(
+    val weekStart: LocalDate,
+    val days: List<PlannedDay>,
+    val plannedMeters: Double,
+    val lastWeekMeters: Double,
+    val chronicWeeklyMeters: Double,
+    /** Why the week is this size. The rule that fired, in a sentence. */
+    val note: String,
+    val phase: Phase? = null,
+    val predictedTimeMs: Long? = null,
+    val fitness: FitnessEstimate? = null,
+)
+
+/**
+ * Turns a training history into next week's sessions.
+ *
+ * Everything here is a rule with a number attached, and every number has a reason that
+ * goes on the screen beside it. That is not decoration. A coach that cannot say why it
+ * asked for six kilometres of threshold cannot be argued with, and a runner who cannot
+ * argue with their plan follows it into an injury.
+ *
+ * The rules that exist to stop that, in the order they bind:
+ *
+ * - **Volume rises by at most ten per cent of last week**, and never past 1.3× the
+ *   four-week average. The second cap is the one that matters: the ten-per-cent rule
+ *   compounds a spike, the ratio refuses to.
+ * - **The long run is capped twice** — a share of the week *and* 1.1× the longest run of
+ *   the last four weeks. A runner with 50 km weeks made of 10 km runs does not get a
+ *   15 km Sunday because the arithmetic allowed it.
+ * - **Hard running is capped as a fraction of the week**: threshold 10 %, interval 8 %,
+ *   repetition 5 %, marathon pace 20 %. Sessions are shortened to fit; the week is never
+ *   lengthened to fit a session.
+ * - **Frequency is never increased.** How many days a week someone runs is a decision
+ *   about their life. The coach works inside it.
+ * - **Nothing fast is prescribed from a fitness estimate that is only [Confidence
+ *   .Provisional]**, because those come from efforts too short to be trusted.
+ *
+ * Completion is inferred rather than tracked: a run recorded on a planned day marks that
+ * day done. Nothing is stored, so the plan cannot drift out of step with the history —
+ * it is recomputed from it every time it is shown.
+ */
+object WeekPlanner {
+
+    const val RAMP = 1.10
+    const val ACWR_CEILING = 1.30
+    const val ACWR_ALARM = 1.5
+    const val LONG_RUN_GROWTH = 1.10
+    const val THRESHOLD_SHARE = 0.10
+
+    /**
+     * Threshold work gets a floor and a hard ceiling either side of the ten per cent.
+     *
+     * Ten per cent of a twenty-kilometre week is two kilometres, which at threshold is
+     * about eight minutes — long enough to hurt and too short to do anything. So the
+     * floor buys fifteen minutes where the week can afford it, and the ceiling refuses to
+     * let that floor run away with a small week. Between them a low-mileage runner gets
+     * the longest threshold session their week supports and not a minute more.
+     */
+    const val THRESHOLD_FLOOR_MS = 15 * 60_000L
+    const val THRESHOLD_CEILING_SHARE = 0.15
+    const val INTERVAL_SHARE = 0.08
+    const val INTERVAL_CAP_M = 10_000.0
+    const val REPETITION_SHARE = 0.05
+    const val REPETITION_CAP_M = 8_000.0
+    const val MARATHON_SHARE = 0.20
+    const val MARATHON_CAP_M = 25_000.0
+
+    /** A first week for someone with almost no history. Three easy runs, nothing clever. */
+    const val BASE_WEEK_METERS = 15_000.0
+    private const val MIN_EASY_M = 3_000.0
+    private const val MIN_LONG_M = 5_000.0
+
+    fun plan(
+        load: LoadSummary,
+        fitness: FitnessEstimate?,
+        goal: RaceGoal?,
+        weekStart: LocalDate,
+        thisWeeksRuns: List<CoachRun> = emptyList(),
+    ): WeekPlan {
+        val phase = goal?.let { Races.phaseFor(it, weekStart) }
+        val paces = fitness?.paces ?: provisionalPaces(load)
+        val budget = budgetFor(load, fitness, goal, weekStart)
+
+        val dates = (0L..6L).map { weekStart.plusDays(it) }
+        val runDates = chooseRunDays(load, dates, budget.runDays)
+        val longDate = chooseLongRunDay(load, runDates)
+        val qualityDates = chooseQualityDays(runDates, longDate, budget.quality)
+
+        val quality = qualityDates.mapIndexed { index, date ->
+            val type = qualityType(phase, index, fitness?.confidence, weekStart)
+            date to buildQuality(type, budget.meters, paces, fitness)
+        }.toMap()
+
+        val qualityMeters = quality.values.sumOf { it.totalMeters }
+        val easyDates = runDates - longDate - qualityDates.toSet()
+
+        val longRun = buildLongRun(budget, load, paces, qualityMeters, easyDates.size)
+        val easyShare = ((budget.meters - qualityMeters - longRun.totalMeters) /
+            easyDates.size.coerceAtLeast(1)).coerceAtLeast(MIN_EASY_M)
+
+        val ranOn = thisWeeksRuns.map { it.date }.toSet()
+        var stridesPlaced = false
+
+        val days = dates.map { date ->
+            val workout = when {
+                date == longDate -> longRun
+                quality.containsKey(date) -> quality.getValue(date)
+                date in easyDates -> {
+                    val yesterdayWasHard = (date.minusDays(1) == longDate) ||
+                        quality.containsKey(date.minusDays(1))
+                    when {
+                        yesterdayWasHard -> Workouts.recovery(
+                            meters = easyShare * 0.8,
+                            paces = paces,
+                            reason = "The day after a hard one. Short and slow, or the hard " +
+                                "day never gets taken up.",
+                        )
+                        !stridesPlaced && budget.strides -> {
+                            stridesPlaced = true
+                            Workouts.strides(
+                                meters = easyShare,
+                                paces = paces,
+                                reason = "Six accelerations inside an easy run. They cost nothing " +
+                                    "and keep your legs from forgetting what fast feels like.",
+                            )
+                        }
+                        else -> Workouts.easy(
+                            meters = easyShare,
+                            paces = paces,
+                            reason = "Four fifths of a week should feel easy. This is part of that.",
+                        )
+                    }
+                }
+                else -> Workouts.rest(restReason(budget.runDays))
+            }
+            PlannedDay(date = date, workout = workout, done = date in ranOn)
+        }
+
+        val planned = days.sumOf { it.workout.totalMeters }
+        return WeekPlan(
+            weekStart = weekStart,
+            days = days,
+            plannedMeters = planned,
+            lastWeekMeters = load.acuteMeters,
+            chronicWeeklyMeters = load.chronicWeeklyMeters,
+            note = budget.note(planned),
+            phase = phase,
+            predictedTimeMs = goal?.let { Races.predictedTimeMs(it, fitness) },
+            fitness = fitness,
+        )
+    }
+
+    // ---- the week's size -------------------------------------------------------------
+
+    /**
+     * [note] takes the week's actual total rather than being a finished string.
+     *
+     * The budget is a ceiling and the sessions land a little under it — a recovery day is
+     * shorter than an easy one, a tempo rounds to whole reps. Writing the ceiling into the
+     * note would leave the runner reading "this week is 44 km" above a plan that sums to
+     * 42.5, which is the sort of small inconsistency that costs a feature its credibility.
+     */
+    private data class Budget(
+        val meters: Double,
+        val runDays: Int,
+        val quality: Int,
+        val strides: Boolean,
+        val note: (Double) -> String,
+    )
+
+    private fun budgetFor(
+        load: LoadSummary,
+        fitness: FitnessEstimate?,
+        goal: RaceGoal?,
+        weekStart: LocalDate,
+    ): Budget {
+        val days = load.runsPerWeek.coerceIn(3, 6)
+        val allowed = qualityAllowance(days, fitness)
+        val taper = goal?.let { Races.volumeFactor(it, weekStart) } ?: 1.0
+
+        val budget = when {
+            load.runsInLast28Days < 3 -> Budget(
+                meters = BASE_WEEK_METERS,
+                runDays = 3,
+                quality = 0,
+                strides = false,
+                note = {
+                    "Not enough behind you to plan from yet — three runs in four weeks is the " +
+                        "least this needs. Here is a week of easy running to build one on."
+                },
+            )
+
+            (load.daysSinceLastRun ?: 0) >= 14 -> Budget(
+                meters = load.chronicWeeklyMeters * 0.6,
+                runDays = min(days, 4),
+                quality = 0,
+                strides = false,
+                note = { total ->
+                    "You have not run in ${load.daysSinceLastRun} days, so this week comes back " +
+                        "at ${km(total)}, all easy — about sixty per cent of your usual. The " +
+                        "fitness is still there; the tendons are what need the fortnight back."
+                },
+            )
+
+            load.ratio != null && load.ratio > ACWR_ALARM -> Budget(
+                meters = load.chronicWeeklyMeters,
+                runDays = days,
+                quality = 0,
+                strides = false,
+                note = { total ->
+                    "Last week was ${times(load.ratio)} your four-week average. This one holds " +
+                        "level at ${km(total)} and stays easy — that ratio is the best predictor " +
+                        "of an injury anyone has found."
+                },
+            )
+
+            load.risingWeeks >= 3 -> Budget(
+                meters = load.acuteMeters * 0.75,
+                runDays = days,
+                quality = allowed,
+                strides = days >= 4,
+                note = { total ->
+                    "Three weeks of rising volume behind you, so this is a cutback: ${km(total)}, " +
+                        "about three quarters of last week. The hard days stay; the mileage is " +
+                        "what comes off."
+                },
+            )
+
+            else -> {
+                // The floor matters as much as the ceiling: after a cutback week, ten per
+                // cent on top of a deliberately small week would ratchet the runner down
+                // instead of returning them to where they were.
+                val raw = min(load.acuteMeters * RAMP, load.chronicWeeklyMeters * ACWR_CEILING)
+                    .coerceAtLeast(load.chronicWeeklyMeters * 0.9)
+                Budget(
+                    meters = raw,
+                    runDays = days,
+                    quality = allowed,
+                    strides = days >= 4 && allowed <= 1,
+                    note = { total ->
+                        "Last week was ${km(load.acuteMeters)}, your four-week average " +
+                            "${km(load.chronicWeeklyMeters)}. This week is ${km(total)} — at most " +
+                            "ten per cent up on last week, and never past 1.3 times the average."
+                    },
+                )
+            }
+        }
+
+        if (taper == 1.0) return budget
+        return budget.copy(
+            meters = budget.meters * taper,
+            note = { total ->
+                "Race week is close, so the volume comes down to ${km(total)} — about " +
+                    "${percent(taper)} of normal — and the sharpness stays. Cutting both is what " +
+                    "makes a taper feel flat on the day."
+            },
+        )
+    }
+
+    /**
+     * How many hard days the week can carry.
+     *
+     * Three runs a week supports one; five supports two. Nobody gets a third, whatever
+     * their volume — the third quality session is where the returns stop and the injuries
+     * start. Nothing at all without a trustworthy fitness estimate to price it from.
+     */
+    private fun qualityAllowance(runDays: Int, fitness: FitnessEstimate?): Int = when {
+        fitness == null || fitness.confidence == Confidence.None -> 0
+        fitness.confidence == Confidence.Provisional -> 1
+        runDays >= 5 -> 2
+        runDays >= 3 -> 1
+        else -> 0
+    }
+
+    // ---- which days ------------------------------------------------------------------
+
+    /**
+     * Sunday first, then the days a Tuesday/Thursday runner uses. Only a tie-break: what
+     * the runner actually does, from [LoadSummary.runDayFrequency], comes first.
+     */
+    private val DefaultPreference = listOf(
+        DayOfWeek.SUNDAY, DayOfWeek.TUESDAY, DayOfWeek.THURSDAY,
+        DayOfWeek.SATURDAY, DayOfWeek.WEDNESDAY, DayOfWeek.MONDAY, DayOfWeek.FRIDAY,
+    )
+
+    private fun chooseRunDays(load: LoadSummary, dates: List<LocalDate>, count: Int): List<LocalDate> =
+        dates.sortedWith(
+            compareByDescending<LocalDate> { load.runDayFrequency[it.dayOfWeek] ?: 0 }
+                .thenBy { DefaultPreference.indexOf(it.dayOfWeek) }
+        ).take(count).sorted()
+
+    private fun chooseLongRunDay(load: LoadSummary, runDates: List<LocalDate>): LocalDate =
+        runDates.firstOrNull { it.dayOfWeek == load.longRunDay }
+            ?: runDates.minByOrNull { DefaultPreference.indexOf(it.dayOfWeek) }
+            ?: runDates.first()
+
+    /**
+     * Hard days, spread out.
+     *
+     * A day is refused if it touches another hard day at all — the day before or after a
+     * quality session, and either side of the long run. Two hard days in a row is the
+     * single most reliable way to turn a training week into three weeks off.
+     */
+    private fun chooseQualityDays(
+        runDates: List<LocalDate>,
+        longDate: LocalDate,
+        count: Int,
+    ): List<LocalDate> {
+        if (count <= 0) return emptyList()
+        val taken = mutableListOf(longDate)
+        val chosen = mutableListOf<LocalDate>()
+
+        runDates
+            .filter { it != longDate }
+            .sortedBy { DefaultPreference.indexOf(it.dayOfWeek) }
+            .forEach { date ->
+                if (chosen.size >= count) return@forEach
+                val touches = taken.any { kotlin.math.abs(it.toEpochDay() - date.toEpochDay()) <= 1 }
+                if (!touches) {
+                    chosen += date
+                    taken += date
+                }
+            }
+        return chosen.sorted()
+    }
+
+    // ---- which sessions --------------------------------------------------------------
+
+    private val ThresholdRotation = listOf(WorkoutType.Tempo, WorkoutType.CruiseIntervals)
+    private val Vo2Rotation = listOf(WorkoutType.Intervals, WorkoutType.Hills, WorkoutType.Fartlek)
+
+    /**
+     * Which session this is, this week.
+     *
+     * Rotated on the week number so a plan does not prescribe the same Tuesday for a year,
+     * and rotated by arithmetic rather than at random so the same week always produces the
+     * same plan and the tests can assert one.
+     */
+    private fun qualityType(
+        phase: Phase?,
+        index: Int,
+        confidence: Confidence?,
+        weekStart: LocalDate,
+    ): WorkoutType {
+        val week = weekStart.toEpochDay() / 7
+        // Threshold is the one hard session a short effort can be priced from: it is run
+        // at a pace held for an hour, not at a pace held for three minutes.
+        if (confidence == Confidence.Provisional) {
+            return ThresholdRotation[(week % ThresholdRotation.size).toInt()]
+        }
+        val vo2 = Vo2Rotation[(week % Vo2Rotation.size).toInt()]
+        val threshold = ThresholdRotation[(week % ThresholdRotation.size).toInt()]
+        return when (phase) {
+            null, Phase.Base -> if (index == 0) threshold else WorkoutType.Hills
+            Phase.Build -> if (index == 0) threshold else vo2
+            Phase.Peak -> if (index == 0) WorkoutType.Steady else WorkoutType.Intervals
+            Phase.Taper -> if (index == 0) WorkoutType.Tempo else WorkoutType.Repetitions
+        }
+    }
+
+    private fun buildQuality(
+        type: WorkoutType,
+        budgetMeters: Double,
+        paces: TrainingPaces,
+        fitness: FitnessEstimate?,
+    ): Workout {
+        val from = fitness?.let {
+            "Your ${distanceName(it.fromDistanceM)} effort on ${it.fromDate} sets "
+        } ?: "From your recent running, "
+
+        return when (type) {
+            WorkoutType.Tempo -> {
+                val work = thresholdWork(budgetMeters, paces)
+                Workouts.tempo(
+                    work, paces,
+                    from + "${pace(paces.thresholdSecPerKm)}/km at threshold. Ten per cent of a " +
+                        "${km(budgetMeters)} week is ${km(work)}, and twenty to forty minutes " +
+                        "is what makes it a tempo rather than a race.",
+                )
+            }
+
+            WorkoutType.CruiseIntervals -> {
+                val work = thresholdWork(budgetMeters, paces)
+                Workouts.cruiseIntervals(
+                    work, paces,
+                    from + "${pace(paces.thresholdSecPerKm)}/km. The same ${km(work)} of " +
+                        "threshold as a tempo, broken up — easier to hold the pace and harder " +
+                        "to drift under it.",
+                )
+            }
+
+            WorkoutType.Intervals -> {
+                val work = min(budgetMeters * INTERVAL_SHARE, INTERVAL_CAP_M)
+                Workouts.intervals(
+                    work, paces,
+                    from + "${pace(paces.intervalSecPerKm)}/km. Capped at eight per cent of the " +
+                        "week, so ${km(work)} hard — the reps are short because the pace is not.",
+                )
+            }
+
+            WorkoutType.Hills -> {
+                val work = min(budgetMeters * INTERVAL_SHARE, INTERVAL_CAP_M)
+                Workouts.hills(
+                    work, paces,
+                    "Interval effort at a fraction of the impact: the hill sets the pace, so " +
+                        "run it hard and ignore the watch. ${km(work)} of climbing, the same " +
+                        "eight per cent cap as intervals.",
+                )
+            }
+
+            WorkoutType.Fartlek -> {
+                val work = min(budgetMeters * INTERVAL_SHARE, INTERVAL_CAP_M)
+                Workouts.fartlek(
+                    work, paces,
+                    from + "about ${pace(paces.intervalSecPerKm)}/km for the quick minutes. " +
+                        "Unstructured on purpose — same eight per cent, less to think about.",
+                )
+            }
+
+            WorkoutType.Repetitions -> {
+                val work = min(budgetMeters * REPETITION_SHARE, REPETITION_CAP_M)
+                Workouts.repetitions(
+                    work, paces,
+                    from + "${pace(paces.repetitionSecPerKm)}/km. Five per cent of the week at " +
+                        "most, fully recovered between: this one is for how you run, not for " +
+                        "how hard you can breathe.",
+                )
+            }
+
+            WorkoutType.Steady -> {
+                val work = min(budgetMeters * MARATHON_SHARE, MARATHON_CAP_M)
+                Workouts.steady(
+                    work, paces,
+                    from + "${pace(paces.marathonSecPerKm)}/km. ${km(work)} continuous, the " +
+                        "closest thing to a race rehearsal that is not a race.",
+                )
+            }
+
+            else -> Workouts.easy(budgetMeters * 0.2, paces, "Easy.")
+        }
+    }
+
+    private fun thresholdWork(budgetMeters: Double, paces: TrainingPaces): Double =
+        (budgetMeters * THRESHOLD_SHARE)
+            .coerceAtLeast(Workouts.metersAt(paces.thresholdSecPerKm, THRESHOLD_FLOOR_MS))
+            .coerceAtMost(budgetMeters * THRESHOLD_CEILING_SHARE)
+
+    private fun buildLongRun(
+        budget: Budget,
+        load: LoadSummary,
+        paces: TrainingPaces,
+        qualityMeters: Double,
+        easyDays: Int,
+    ): Workout {
+        // A three-day week cannot put thirty per cent into its longest run and still have
+        // it be the longest, so the share loosens as the week gets shorter.
+        val share = when {
+            budget.runDays <= 3 -> 0.40
+            budget.runDays == 4 -> 0.35
+            else -> 0.30
+        }
+        val byShare = budget.meters * share
+        val byHistory = if (load.longestRunMeters > 0.0) {
+            load.longestRunMeters * LONG_RUN_GROWTH
+        } else {
+            byShare
+        }
+        val room = budget.meters - qualityMeters - easyDays * MIN_EASY_M
+        val meters = minOf(byShare, byHistory, room).coerceAtLeast(MIN_LONG_M)
+
+        val reason = if (byHistory < byShare && load.longestRunMeters > 0.0) {
+            "Your longest run in the last four weeks was ${km(load.longestRunMeters)}, so this " +
+                "one is ${km(meters)}. Ten per cent at a time is how a long run grows without " +
+                "costing you a fortnight."
+        } else {
+            "${percent(share)} of a ${km(budget.meters)} week, which is ${km(meters)}. Run it " +
+                "at ${pace(paces.easySecPerKm.start)}–${pace(paces.easySecPerKm.endInclusive)}/km " +
+                "— the distance is the session, not the pace."
+        }
+        return Workouts.longRun(meters, paces, reason)
+    }
+
+    private fun restReason(runDays: Int) =
+        "Rest. You run $runDays days a week, and the other ${7 - runDays} are when the " +
+            "training you did actually turns into fitness."
+
+    /**
+     * Paces for a runner the app cannot price yet.
+     *
+     * Derived from their own average pace over the last four weeks rather than from a
+     * table: a beginner handed a stranger's easy pace runs it, and it is either pointless
+     * or dangerous. With no history at all there is nothing to say, so the ranges are
+     * wide and the planner will not prescribe anything fast off them anyway.
+     */
+    private fun provisionalPaces(load: LoadSummary): TrainingPaces {
+        val fallbackEasy = 420.0
+        return TrainingPaces(
+            easySecPerKm = fallbackEasy..(fallbackEasy + 60.0),
+            marathonSecPerKm = fallbackEasy - 45.0,
+            thresholdSecPerKm = fallbackEasy - 70.0,
+            intervalSecPerKm = fallbackEasy - 90.0,
+            repetitionSecPerKm = fallbackEasy - 105.0,
+        )
+    }
+
+    // ---- text ------------------------------------------------------------------------
+    //
+    // Formatted here rather than through `ui/format`, and without a Locale: these strings
+    // are asserted in tests, and a decimal separator that changes with the phone's
+    // language would make the assertions depend on where the build ran.
+
+    private fun km(meters: Double): String {
+        val tenths = (meters / 100.0).roundToInt()
+        return "${tenths / 10}.${tenths % 10} km"
+    }
+
+    private fun pace(secPerKm: Double): String {
+        val total = secPerKm.roundToInt()
+        return "${total / 60}:${(total % 60).toString().padStart(2, '0')}"
+    }
+
+    private fun percent(fraction: Double) = "${(fraction * 100).roundToInt()} per cent"
+
+    private fun times(ratio: Double) = "${(ratio * 10).roundToInt() / 10}.${(ratio * 10).roundToInt() % 10} times"
+
+    private fun distanceName(meters: Int) = when (meters) {
+        21_097 -> "half marathon"
+        42_195 -> "marathon"
+        else -> "${meters / 1000} km"
+    }
+}

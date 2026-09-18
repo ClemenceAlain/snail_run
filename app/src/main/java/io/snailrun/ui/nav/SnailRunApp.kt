@@ -22,6 +22,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 enum class TopLevel(val route: String, val label: String, @DrawableRes val icon: Int) {
     Record("record", "Record", R.drawable.ic_snail),
     History("history", "Runs", R.drawable.ic_list),
+    Coach("coach", "Coach", R.drawable.ic_coach),
     Settings("settings", "Settings", R.drawable.ic_settings),
 }
 

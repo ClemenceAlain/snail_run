@@ -12,19 +12,33 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import io.snailrun.data.prefs.Settings
 import io.snailrun.data.voice.TtsState
+import io.snailrun.domain.coach.Races
 import io.snailrun.ui.components.SnailCard
 import io.snailrun.ui.theme.Spacing
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 data class SettingsActions(
     val onVoiceEnabled: (Boolean) -> Unit,
@@ -42,6 +56,8 @@ data class SettingsActions(
     val onAutoPause: (Boolean) -> Unit,
     val onChooseBasemap: () -> Unit,
     val onRemoveBasemap: () -> Unit,
+    /** Distance and date together, or both null to clear the target. */
+    val onCoachTarget: (Int?, Long?) -> Unit,
     val onDemoEnabled: (Boolean) -> Unit,
     val onDemoSpeedFactor: (Int) -> Unit,
     val onBackup: () -> Unit,
@@ -57,6 +73,8 @@ fun SettingsScreen(
     basemapStatus: String = "No map file yet.",
     backupStatus: String? = null,
 ) {
+    var showRaceDatePicker by remember { mutableStateOf(false) }
+
     Column(
         modifier = modifier
             .verticalScroll(rememberScrollState())
@@ -204,6 +222,78 @@ fun SettingsScreen(
         }
 
         Spacer(Modifier.height(Spacing.section))
+        SectionTitle("Coach")
+
+        SnailCard(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = "The Coach tab plans a week from the runs you have already done. " +
+                    "It needs nothing set here — without a race it builds steadily and " +
+                    "safely, which is what most of a year looks like.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Spacer(Modifier.height(Spacing.l))
+            Text("Training for", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(Spacing.s))
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                FilterChip(
+                    selected = settings.coach.targetDistanceMeters == null,
+                    onClick = { actions.onCoachTarget(null, null) },
+                    label = { Text("Nothing") },
+                )
+                Races.Distances.forEach { meters ->
+                    FilterChip(
+                        selected = settings.coach.targetDistanceMeters == meters,
+                        onClick = {
+                            // A distance with no date cannot be periodised, so picking one
+                            // seeds a date twelve weeks out — the length of a build — which
+                            // the runner then corrects to their actual race.
+                            actions.onCoachTarget(
+                                meters,
+                                settings.coach.targetDateEpochDay
+                                    ?: LocalDate.now().plusWeeks(12).toEpochDay(),
+                            )
+                        },
+                        label = { Text(raceLabel(meters)) },
+                    )
+                }
+            }
+
+            AnimatedVisibility(visible = settings.coach.targetDistanceMeters != null) {
+                Column {
+                    Spacer(Modifier.height(Spacing.m))
+                    val date = settings.coach.targetDateEpochDay?.let(LocalDate::ofEpochDay)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = date?.let { dateFormat().format(it) } ?: "No date",
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                        TextButton(onClick = { showRaceDatePicker = true }) { Text("Change") }
+                    }
+                    Text(
+                        text = "Twelve weeks out the plan builds, four weeks out it sharpens, " +
+                            "and the last fortnight it tapers. Nothing about that is guessed " +
+                            "from the date — it is counted back from it.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        if (showRaceDatePicker) {
+            RaceDatePicker(
+                initial = settings.coach.targetDateEpochDay,
+                onDismiss = { showRaceDatePicker = false },
+                onPick = { epochDay ->
+                    showRaceDatePicker = false
+                    actions.onCoachTarget(settings.coach.targetDistanceMeters, epochDay)
+                },
+            )
+        }
+
+        Spacer(Modifier.height(Spacing.section))
         SectionTitle("Demo mode")
 
         SnailCard(modifier = Modifier.fillMaxWidth()) {
@@ -297,6 +387,51 @@ fun SettingsScreen(
             )
         }
     }
+}
+
+/**
+ * The platform date picker, opened only when a target exists to attach a date to.
+ *
+ * Dates arrive from it as UTC milliseconds whatever the phone's zone, so they are read
+ * back in UTC. Reading them in the local zone shifts the race a day either way for
+ * anyone far enough east or west, which is exactly the sort of bug nobody notices until
+ * the taper starts a week late.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RaceDatePicker(initial: Long?, onDismiss: () -> Unit, onPick: (Long) -> Unit) {
+    val state = rememberDatePickerState(
+        initialSelectedDateMillis = (initial ?: LocalDate.now().plusWeeks(12).toEpochDay()) *
+            86_400_000L,
+    )
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    state.selectedDateMillis?.let { millis ->
+                        onPick(
+                            Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
+                                .toEpochDay()
+                        )
+                    }
+                },
+            ) { Text("Set") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    ) {
+        DatePicker(state = state)
+    }
+}
+
+// Built per call: a formatter cached at class-init keeps the locale the app
+// started with, which is wrong after the user changes the system language.
+private fun dateFormat() = DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", Locale.getDefault())
+
+private fun raceLabel(meters: Int) = when (meters) {
+    21_097 -> "Half"
+    42_195 -> "Marathon"
+    else -> "${meters / 1000} km"
 }
 
 private fun demoDurationLabel(speedFactor: Int): String {
