@@ -214,7 +214,12 @@ class MainActivity : ComponentActivity() {
             },
             snackbarHost = { SnackbarHost(snackbarHost) },
         ) { insets ->
-            RunDetailScreen(state = state, modifier = Modifier.padding(insets))
+            RunDetailScreen(
+                state = state,
+                onSelect = viewModel::select,
+                onClearSelection = viewModel::clearSelection,
+                modifier = Modifier.padding(insets),
+            )
         }
     }
 
@@ -267,6 +272,7 @@ class MainActivity : ComponentActivity() {
                 onChooseExportFolder = { folderPicker.launch(null) },
                 onAutoExport = { scope.launch { container.settings.setAutoExportEnabled(it) } },
                 onKeepScreenOn = { scope.launch { container.settings.setKeepScreenOn(it) } },
+                onAutoPause = { scope.launch { container.settings.setAutoPauseEnabled(it) } },
                 onDemoEnabled = { scope.launch { container.settings.setDemoEnabled(it) } },
                 onDemoSpeedFactor = { scope.launch { container.settings.setDemoSpeedFactor(it) } },
             )

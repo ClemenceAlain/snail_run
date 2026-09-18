@@ -21,6 +21,8 @@ data class Settings(
     val exportFolderUri: String? = null,
     val autoExportEnabled: Boolean = true,
     val keepScreenOn: Boolean = true,
+    /** Stops the clock when the runner stops, and starts it again when they move off. */
+    val autoPauseEnabled: Boolean = false,
     val speechRate: Float = 1.0f,
     /** Local basemap file. Absent means runs are drawn as a plain trace. */
     val basemapUri: String? = null,
@@ -66,6 +68,8 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setKeepScreenOn(value: Boolean) = edit { it[KEEP_SCREEN_ON] = value }
 
+    suspend fun setAutoPauseEnabled(value: Boolean) = edit { it[AUTO_PAUSE] = value }
+
     suspend fun setDemoEnabled(value: Boolean) = edit { it[DEMO_ENABLED] = value }
 
     suspend fun setDemoSpeedFactor(factor: Int) = edit { it[DEMO_SPEED_FACTOR] = factor }
@@ -90,6 +94,7 @@ class SettingsRepository(private val context: Context) {
         exportFolderUri = this[EXPORT_FOLDER_URI],
         autoExportEnabled = this[AUTO_EXPORT] ?: true,
         keepScreenOn = this[KEEP_SCREEN_ON] ?: true,
+        autoPauseEnabled = this[AUTO_PAUSE] ?: false,
         speechRate = this[SPEECH_RATE] ?: 1.0f,
         basemapUri = this[BASEMAP_URI],
         demo = DemoSettings(
@@ -109,6 +114,7 @@ class SettingsRepository(private val context: Context) {
         val EXPORT_FOLDER_URI = stringPreferencesKey("export_folder_uri")
         val AUTO_EXPORT = booleanPreferencesKey("auto_export")
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
+        val AUTO_PAUSE = booleanPreferencesKey("auto_pause")
         val BASEMAP_URI = stringPreferencesKey("basemap_uri")
         val DEMO_ENABLED = booleanPreferencesKey("demo_enabled")
         val DEMO_SPEED_FACTOR = intPreferencesKey("demo_speed_factor")

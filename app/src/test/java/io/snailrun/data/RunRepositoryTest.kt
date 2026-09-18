@@ -36,7 +36,10 @@ class RunRepositoryTest {
     @After
     fun tearDown() = db.close()
 
-    private suspend fun recordRun(seconds: Int = 1000, speedMps: Double = 3.0): Long {
+    // 1010 rather than a round 1000 seconds: at exactly 3000 m the third kilometre
+    // boundary sits on the last point, and the position filter's final centimetre
+    // decides whether the split exists. A run is never that tidy.
+    private suspend fun recordRun(seconds: Int = 1010, speedMps: Double = 3.0): Long {
         val id = repository.startRun(Traces.START_MS)
         val points = Traces.straightTrack(seconds = seconds, speedMps = speedMps)
         repository.appendPoints(id, points)
@@ -112,7 +115,7 @@ class RunRepositoryTest {
         val date = RunRepository.localDate(Traces.START_MS, java.time.ZoneId.systemDefault())
         val totals = repository.observeDailyTotals(date, date).first()
         assertEquals(1, totals.single().runCount)
-        assertEquals(3000.0, totals.single().meters, 1.0)
+        assertEquals(3030.0, totals.single().meters, 2.0)
     }
 
     @Test

@@ -9,14 +9,18 @@ network socket. Nothing it records can leave the device.
 ## What it does today
 
 - Records a run from the GPS chip: distance, moving time, pace, approximate elevation.
+- Corrects the positions as it goes: jitter smoothed, reflections pulled back onto the
+  track, dropouts ridden out.
+- Optionally stops the clock when you stop, and starts it again when you move off.
 - Speaks your pace aloud at every kilometre, using an on-device speech engine.
 - Saves every finished run as a GPX file in a folder you pick once.
-- Lists past runs, and shows one with its trace, per-kilometre splits and any records.
+- Lists past runs, and shows one with its trace, its pace-and-elevation graph and any
+  records. Drag across the graph for the average over any stretch.
 - Survives being killed mid-run: the track is in the database, and the app offers to
   finish or continue it on next launch.
 
-Planned next: auto-pause, a calendar view, an offline basemap behind the trace, then
-progress charts and GPX import.
+Planned next: a calendar view, an offline basemap behind the trace, then progress charts
+and GPX import.
 
 ## Demo mode
 
@@ -85,6 +89,58 @@ A few decisions worth knowing before changing things:
 - **Voice announcements use active duration, not wall clock**, so a pause can never
   produce a catch-up burst of announcements on resume.
 - **Numbers spoken aloud are words, never "5:12".** Engines read the colon literally.
+- **The database stores raw positions and nothing derived from them is trusted.** Every
+  figure the app shows — distance, pace, splits, records, the drawn trace, the GPX — is
+  re-derived from those positions through the current filter. See below.
+
+## Correcting the positions
+
+`domain/geo/TrackSmoother.kt` is a constant-velocity Kalman filter over local metres, one
+independent filter per axis. It does three things a raw GPS track needs:
+
+- **Jitter.** A receiver wanders a metre or two a second even standing still. Summed
+  naively that wander becomes distance: measured against fixtures whose true length is
+  known, a raw track reads about **65 % long**. Through the filter it lands within 2 % on
+  a straight run and 3.5 % on a twisty one.
+- **Reflections.** A fix hundreds of metres out is not dropped — leaving a tunnel, such a
+  fix is the truth. Its measurement noise is inflated instead, so it nudges the estimate
+  rather than snapping it, and three in a row are accepted as a real reposition.
+- **Dropouts.** The prediction runs on the last known velocity and its uncertainty grows
+  with the gap, so the fix that ends a dropout is adopted at once instead of being fought
+  as an outlier. Nothing is invented across the hole: a straight line is the only
+  reconstruction the data supports.
+
+Two details worth knowing before touching it:
+
+- **The velocity is set from the first two fixes, not converged towards.** Left to
+  converge it spends ten seconds behind the runner and loses about ten metres off the
+  front of every run.
+- **Distance is gated on speed, not on a jitter floor.** The floor existed to stop raw
+  noise being integrated; the filter removes the noise instead. What replaces it is a
+  speed gate, read from the chip's Doppler where that is trustworthy — standing at a
+  light, the filter is deliberately stiff and coasts ten metres before it believes you
+  have stopped, while Doppler collapses to zero at once.
+
+### Improving it later
+
+Runs carry the filter version they were derived with. Raise `TrackSmoother.VERSION`, and
+on next launch every run recorded under an older version is re-derived from its raw
+positions: cumulative distances, totals, splits and records all rewritten. The latitudes
+and longitudes are never touched — they are the record of what the chip said.
+
+## Auto-pause
+
+Off by default; Settings → While recording. Two thresholds with a dwell on each, because
+one threshold flaps: a runner standing at a light would produce a burst of pause and
+resume events, each splitting the track into another segment.
+
+- Pauses about four seconds after you stop, resumes about two seconds after you move off.
+- Walking does not pause the run; only standing still does. A walking break in the middle
+  of a run is usually still the run.
+- A pause you made by hand is never undone for you.
+- Resuming fires at a lower bar and a shorter dwell than pausing, because the two
+  mistakes do not cost the same: a late pause adds a few seconds of standing to the
+  clock, a late resume silently drops real running out of it.
 
 ## Testing without a device
 
@@ -95,6 +151,11 @@ and a GPX file that parses.
 
 The first real run on a phone should be used to check the accepted/rejected fix ratio,
 so the filter thresholds get tuned from data rather than from the estimates in the code.
+
+`TrackSmootherTest` scores the position filter against fixtures whose true length is
+exact, so a change to it is a number that went up or down rather than a judgement about
+whether the trace looks nicer. `MigrationTest` opens a real version 1 database and
+upgrades it, because a migration that fails takes every run on the phone with it.
 
 ## Releases
 

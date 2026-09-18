@@ -8,6 +8,7 @@ import io.snailrun.data.export.ExportResult
 import io.snailrun.data.export.GpxExporter
 import io.snailrun.data.repo.RunRepository
 import io.snailrun.domain.analysis.BestEffortFinder
+import io.snailrun.domain.analysis.TrackProfile
 import io.snailrun.domain.model.LatLon
 import io.snailrun.domain.model.TrackPoint
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,23 +29,39 @@ class RunDetailViewModel(
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
 
+    /** Kept out of the UI state: a selection is answered from the track, not redrawn from it. */
+    private var points: List<TrackPoint> = emptyList()
+
     fun load(runId: Long) {
         viewModelScope.launch {
             combine(
                 repository.observeRun(runId),
-                repository.observePoints(runId),
-                repository.observeSplits(runId),
-            ) { run, points, splits ->
+                // Corrected, like everything the app shows. The raw track stays in the
+                // database for the filter to be re-run over later.
+                repository.observeSmoothedPoints(runId),
+            ) { run, track ->
+                points = track
                 RunDetailUiState(
                     run = run,
-                    segments = points.toSegments(),
-                    splits = splits,
+                    segments = track.toSegments(),
+                    profile = TrackProfile.sample(track),
                     records = emptyList(),
                 )
             }.collect { state ->
                 _state.value = state.copy(records = recordsHeldBy(runId))
             }
         }
+    }
+
+    /** Drag on the graph: what did this stretch of the run actually average? */
+    fun select(fromM: Double, toM: Double) {
+        _state.value = _state.value.copy(
+            selection = TrackProfile.selection(points, fromM, toM),
+        )
+    }
+
+    fun clearSelection() {
+        _state.value = _state.value.copy(selection = null)
     }
 
     /** Only the distances where this run is the fastest one recorded are celebrated. */

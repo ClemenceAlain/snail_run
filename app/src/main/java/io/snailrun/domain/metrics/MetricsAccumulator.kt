@@ -1,5 +1,8 @@
 package io.snailrun.domain.metrics
 
+import io.snailrun.domain.geo.GeoDistance
+import io.snailrun.domain.geo.SmoothedFix
+import io.snailrun.domain.geo.TrackSmoother
 import io.snailrun.domain.model.GpsQuality
 import io.snailrun.domain.model.RawFix
 import io.snailrun.domain.model.RunStatus
@@ -44,6 +47,15 @@ class MetricsAccumulator(
     filterConfig: FilterConfig = FilterConfig(),
     private val paceSmoother: PaceSmoother = PaceSmoother(),
     private val elevation: ElevationTracker = ElevationTracker(),
+    /**
+     * Corrects the positions the distance is measured from. Null restores the raw
+     * behaviour, which is how the filter's own arithmetic is still tested in isolation.
+     *
+     * The track point keeps the raw latitude and longitude: the database is the archive
+     * of what the chip actually said, so a better filter later can be run over runs
+     * already recorded. Only the derived figures are smoothed.
+     */
+    private val smoother: TrackSmoother? = TrackSmoother(),
 ) {
     private val filter = FixFilter(filterConfig)
 
@@ -55,6 +67,7 @@ class MetricsAccumulator(
     private var segment = 0
     private var lastPoint: TrackPoint? = null
     private var quality = GpsQuality.NO_FIX
+    private var lastSmoothed: SmoothedFix? = null
 
     val metrics: RunMetrics
         get() = RunMetrics(
@@ -92,6 +105,8 @@ class MetricsAccumulator(
         status = RunStatus.PAUSED_MANUAL
         filter.reset()
         paceSmoother.reset()
+        smoother?.reset()
+        lastSmoothed = null
     }
 
     fun pause(manual: Boolean = true) {
@@ -101,6 +116,10 @@ class MetricsAccumulator(
         segment++
         filter.reset()
         paceSmoother.reset()
+        // The smoother's velocity must not survive a pause: carried across it, the first
+        // fix on resume would be predicted somewhere the runner never went.
+        smoother?.reset()
+        lastSmoothed = null
         lastTimestampMs = null
     }
 
@@ -132,9 +151,10 @@ class MetricsAccumulator(
                 }
                 lastTimestampMs = fix.epochMs
 
-                distance += result.distanceDeltaM
+                val stepM = smoothedStep(fix) ?: result.distanceDeltaM
+                distance += stepM
                 elevation.onFix(fix.altitudeM, fix.verticalAccuracyM)
-                sampleSpeed(fix, result.distanceDeltaM, previousTimestampMs)
+                sampleSpeed(fix, stepM, previousTimestampMs)
                 quality = qualityFor(fix.accuracyM)
 
                 val point = TrackPoint(
@@ -153,6 +173,40 @@ class MetricsAccumulator(
                 FixOutcome.Recorded(point, metrics)
             }
         }
+    }
+
+    /**
+     * The displacement the smoother believes in, or null when smoothing is off.
+     *
+     * The filter's own jitter floor is skipped here: it exists to stop raw noise being
+     * integrated, and the smoother has already removed the noise. Applying both would
+     * discard real, slow movement twice over.
+     *
+     * A speed floor replaces it. Standing at a light, the estimate still drifts a few
+     * tenths of a metre per second, and over a minute that is twenty metres of distance
+     * the runner never covered.
+     *
+     * The floor reads the chip's Doppler speed where that is trustworthy, and the
+     * filter's own velocity otherwise. Doppler collapses to zero the moment the runner
+     * stops, whereas the filter — deliberately stiff, so that it does not chase jitter —
+     * takes several seconds to accept it and coasts a good ten metres in the meantime.
+     */
+    private fun smoothedStep(fix: RawFix): Double? {
+        val smoother = smoother ?: return null
+        val next = smoother.onFix(fix.epochMs, fix.lat, fix.lon, fix.accuracyM)
+        val previous = lastSmoothed
+        lastSmoothed = next
+        if (previous == null) return 0.0
+        if (gateSpeedOf(fix, next) < MIN_SMOOTHED_SPEED_MPS) return 0.0
+        val step = GeoDistance.between(previous.lat, previous.lon, next.lat, next.lon)
+        return if (step >= MIN_SMOOTHED_STEP_M) step else 0.0
+    }
+
+    private fun gateSpeedOf(fix: RawFix, smoothed: SmoothedFix): Double {
+        val reported = fix.speedMps?.toDouble()
+        val accuracy = fix.speedAccuracyMps
+        return if (reported != null && (accuracy == null || accuracy < 1.0f)) reported
+        else smoothed.speedMps
     }
 
     /**
@@ -191,5 +245,13 @@ class MetricsAccumulator(
         GpsQuality.GOOD -> GpsQuality.OK
         GpsQuality.OK -> GpsQuality.POOR
         else -> current
+    }
+
+    private companion object {
+        /** Sub-centimetre steps are arithmetic, not movement. */
+        const val MIN_SMOOTHED_STEP_M = 0.05
+
+        /** A third of a metre per second is a shuffle, not a walk, let alone a run. */
+        const val MIN_SMOOTHED_SPEED_MPS = 0.4
     }
 }

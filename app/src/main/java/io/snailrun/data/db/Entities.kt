@@ -38,6 +38,12 @@ data class RunEntity(
     val distanceMilestonesAnnounced: Int = 0,
     val lastTimeAnnouncedActiveMs: Long = 0,
     val gpxExportedUri: String? = null,
+    /**
+     * Which version of the position filter the stored figures were derived with.
+     * Zero means "before the filter existed"; anything behind the current version is
+     * re-derived from the raw track on next launch.
+     */
+    val smootherVersion: Int = 0,
 )
 
 @Entity(

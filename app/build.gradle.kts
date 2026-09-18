@@ -60,6 +60,11 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    // Room's exported schemas, as assets of the debug variant only. MigrationTest opens
+    // a real version 1 database with them rather than trusting the upgrade, and the
+    // release APK still ships without them.
+    sourceSets.getByName("debug").assets.srcDir("$projectDir/schemas")
+
     testOptions.unitTests {
         isIncludeAndroidResources = true
         isReturnDefaultValues = true

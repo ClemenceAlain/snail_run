@@ -39,6 +39,7 @@ data class SettingsActions(
     val onChooseExportFolder: () -> Unit,
     val onAutoExport: (Boolean) -> Unit,
     val onKeepScreenOn: (Boolean) -> Unit,
+    val onAutoPause: (Boolean) -> Unit,
     val onDemoEnabled: (Boolean) -> Unit,
     val onDemoSpeedFactor: (Int) -> Unit,
 )
@@ -149,6 +150,21 @@ fun SettingsScreen(
                 label = "Keep the screen on",
                 checked = settings.keepScreenOn,
                 onCheckedChange = actions.onKeepScreenOn,
+            )
+
+            Spacer(Modifier.height(Spacing.l))
+            SwitchRow(
+                label = "Pause when I stop",
+                checked = settings.autoPauseEnabled,
+                onCheckedChange = actions.onAutoPause,
+            )
+            Spacer(Modifier.height(Spacing.s))
+            Text(
+                text = "The clock stops a few seconds after you do, and starts again " +
+                    "when you move off. A walking break still counts as running — only " +
+                    "standing still pauses. Pausing by hand is never undone for you.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 

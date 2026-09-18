@@ -11,6 +11,7 @@ import io.snailrun.domain.demo.DemoRunProfile
 import io.snailrun.domain.fixtures.Traces
 import io.snailrun.domain.gpx.GpxTrack
 import io.snailrun.domain.gpx.GpxWriter
+import io.snailrun.domain.model.RunStatus
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
@@ -38,6 +39,7 @@ class RunRecorderTest {
     private lateinit var db: SnailDatabase
     private lateinit var repository: RunRepository
     private lateinit var recorder: RunRecorder
+    private lateinit var settings: SettingsRepository
 
     /** Advances with the fixture's own timestamps, so nothing depends on wall clock. */
     private class FixtureClock(var nowMs: Long) : Clock() {
@@ -56,9 +58,10 @@ class RunRecorderTest {
             .allowMainThreadQueries()
             .build()
         repository = RunRepository(db.runDao(), clock)
+        settings = SettingsRepository(context)
         recorder = RunRecorder(
             repository = repository,
-            settings = SettingsRepository(context),
+            settings = settings,
             clock = clock,
         )
     }
@@ -125,6 +128,73 @@ class RunRecorderTest {
         // And a real run of the same shape still does.
         runFixture(seconds = 1200)
         assertNotNull(repository.observePersonalRecord(1_000).first())
+    }
+
+    @Test
+    fun `auto-pause stops the clock at a light and starts it again`() = runTest {
+        settings.setAutoPauseEnabled(true)
+        recorder.start()
+
+        // Five minutes running, one minute standing still, five minutes running.
+        val fixes = Traces.runWithStop(
+            beforeSeconds = 300,
+            stillSeconds = 60,
+            afterSeconds = 300,
+            speedMps = 3.0,
+        )
+        fixes.forEach { fix ->
+            clock.nowMs = fix.epochMs
+            recorder.onFix(fix)
+        }
+        val id = recorder.finish()!!
+
+        val run = repository.observeRun(id).first()!!
+        // Ten minutes of running, and the minute at the light charged to nobody. The few
+        // seconds either side are the detector deciding.
+        assertEquals(600_000.0, run.movingTimeMs.toDouble(), 12_000.0)
+        assertEquals(1_800.0, run.distanceMeters, 60.0)
+    }
+
+    @Test
+    fun `without the setting the clock keeps running through a stop`() = runTest {
+        recorder.start()
+
+        Traces.runWithStop(
+            beforeSeconds = 300,
+            stillSeconds = 60,
+            afterSeconds = 300,
+            speedMps = 3.0,
+        ).forEach { fix ->
+            clock.nowMs = fix.epochMs
+            recorder.onFix(fix)
+        }
+        val id = recorder.finish()!!
+
+        // The whole eleven minutes, because nothing was asked to pause.
+        assertEquals(660_000.0, repository.observeRun(id).first()!!.movingTimeMs.toDouble(), 2_000.0)
+    }
+
+    @Test
+    fun `auto-pause never undoes a pause the runner asked for`() = runTest {
+        settings.setAutoPauseEnabled(true)
+        recorder.start()
+
+        Traces.steadyRun(seconds = 60, speedMps = 3.0).forEach { fix ->
+            clock.nowMs = fix.epochMs
+            recorder.onFix(fix)
+        }
+        recorder.pause()
+
+        // Ten minutes of running arrive while paused by hand. None of it counts.
+        (1..600).forEach { i ->
+            val fix = Traces.fix(180.0 + i * 3.0, Traces.START_MS + 60_000 + i * 1000L, speedMps = 3f)
+            clock.nowMs = fix.epochMs
+            recorder.onFix(fix)
+        }
+        val state = recorder.state.value as RecordingState.Active
+
+        assertEquals(RunStatus.PAUSED_MANUAL, state.metrics.status)
+        assertEquals(180.0, state.metrics.distanceMeters, 10.0)
     }
 
     @Test

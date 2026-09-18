@@ -2,16 +2,12 @@ package io.snailrun.ui.detail
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
@@ -20,11 +16,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.unit.dp
 import io.snailrun.data.db.RunEntity
+import io.snailrun.domain.analysis.ProfileSample
+import io.snailrun.domain.analysis.ProfileSelection
 import io.snailrun.domain.model.LatLon
-import io.snailrun.domain.model.Split
 import io.snailrun.ui.components.MetricRow
+import io.snailrun.ui.components.PaceProfileChart
 import io.snailrun.ui.components.RouteTrace
 import io.snailrun.ui.components.SnailCard
 import io.snailrun.ui.format.RunFormat
@@ -42,13 +39,21 @@ private fun headerformat() = DateTimeFormatter.ofPattern("EEE d MMM yyyy · HH:m
 data class RunDetailUiState(
     val run: RunEntity? = null,
     val segments: List<List<LatLon>> = emptyList(),
-    val splits: List<Split> = emptyList(),
+    /** Pace and elevation along the run, one entry per column of the graph. */
+    val profile: List<ProfileSample> = emptyList(),
+    /** The stretch the reader has dragged out on the graph, if any. */
+    val selection: ProfileSelection? = null,
     /** Distances for which this run currently holds the record. */
     val records: List<Pair<Int, Long>> = emptyList(),
 )
 
 @Composable
-fun RunDetailScreen(state: RunDetailUiState, modifier: Modifier = Modifier) {
+fun RunDetailScreen(
+    state: RunDetailUiState,
+    onSelect: (Double, Double) -> Unit,
+    onClearSelection: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val run = state.run ?: return
 
     LazyColumn(
@@ -103,16 +108,30 @@ fun RunDetailScreen(state: RunDetailUiState, modifier: Modifier = Modifier) {
             Spacer(Modifier.height(Spacing.m))
         }
 
-        if (state.splits.isNotEmpty()) {
+        if (state.profile.size >= 2) {
             item {
                 Spacer(Modifier.height(Spacing.l))
-                Text(text = "Splits", style = MaterialTheme.typography.titleMedium)
+                Text(text = "Pace", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = "Drag across the graph for the average over a stretch.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Spacer(Modifier.height(Spacing.m))
-            }
-            val fastest = state.splits.filter { !it.isPartial }.minByOrNull { it.paceSecPerKm }
-            val slowest = state.splits.maxOfOrNull { it.paceSecPerKm } ?: 1.0
-            items(state.splits) { split ->
-                SplitRow(split = split, slowestPace = slowest, isFastest = split == fastest)
+
+                PaceProfileChart(
+                    samples = state.profile,
+                    selection = state.selection?.let { it.fromM..it.toM },
+                    onSelectionChange = { range ->
+                        if (range == null) onClearSelection()
+                        else onSelect(range.start, range.endInclusive)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(Spacing.s))
+                DistanceAxis(totalM = state.profile.last().distanceM)
+                Spacer(Modifier.height(Spacing.m))
+                SelectionSummary(state.selection)
             }
         }
 
@@ -155,52 +174,49 @@ private fun RecordCard(distanceMeters: Int, durationMs: Long) {
     }
 }
 
+/**
+ * What the dragged stretch came to. Present but empty before anything is selected, so
+ * the screen does not jump when a selection appears.
+ */
 @Composable
-private fun SplitRow(split: Split, slowestPace: Double, isFastest: Boolean) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = Spacing.s),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Spacing.m),
-    ) {
-        Text(
-            text = "${split.index + 1}",
-            style = SnailType.metricSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(24.dp),
-        )
-        Text(
-            text = RunFormat.pace(split.paceSecPerKm),
-            style = SnailType.metricSmall,
-            modifier = Modifier.width(56.dp),
-        )
-        // Bar length tracks pace, so the shape of the run is readable at a glance.
-        val fraction = (split.paceSecPerKm / slowestPace).coerceIn(0.05, 1.0).toFloat()
-        Box(
-            Modifier
-                .weight(1f)
-                .height(10.dp)
-                .clip(MaterialTheme.shapes.extraSmall)
-                .background(MaterialTheme.colorScheme.surfaceContainer),
-        ) {
-            Box(
-                Modifier
-                    .fillMaxWidth(fraction)
-                    .height(10.dp)
-                    .clip(MaterialTheme.shapes.extraSmall)
-                    .background(
-                        when {
-                            split.isPartial -> MaterialTheme.colorScheme.outlineVariant
-                            isFastest -> MaterialTheme.colorScheme.primary
-                            else -> MaterialTheme.colorScheme.primaryContainer
-                        }
-                    ),
-            )
-        }
-        if (split.isPartial) {
+private fun SelectionSummary(selection: ProfileSelection?) {
+    SnailCard(modifier = Modifier.fillMaxWidth()) {
+        if (selection == null) {
             Text(
-                text = RunFormat.distanceKm(split.distanceMeters),
+                text = "No stretch selected",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            return@SnailCard
+        }
+
+        Text(
+            text = "${RunFormat.distanceKm(selection.fromM)} – " +
+                "${RunFormat.distanceKm(selection.toM)} km",
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Spacer(Modifier.height(Spacing.m))
+        MetricRow(
+            metrics = listOf(
+                RunFormat.pace(selection.paceSecPerKm) to "/km",
+                RunFormat.duration(selection.durationMs) to "time",
+                RunFormat.distanceKm(selection.distanceM) to "km",
+                "+${RunFormat.elevation(selection.elevationGainM)}" to "climb",
+            ),
+        )
+    }
+}
+
+/** Just the two ends. A run has no interesting tick marks in between. */
+@Composable
+private fun DistanceAxis(totalM: Double) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        listOf("0", "${RunFormat.distanceKm(totalM)} km").forEach { label ->
+            Text(
+                text = label,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

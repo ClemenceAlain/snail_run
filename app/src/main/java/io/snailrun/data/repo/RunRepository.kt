@@ -4,6 +4,7 @@ import io.snailrun.data.db.RunDao
 import io.snailrun.data.db.RunEntity
 import io.snailrun.domain.analysis.BestEffortFinder
 import io.snailrun.domain.analysis.SplitCalculator
+import io.snailrun.domain.geo.TrackSmoother
 import io.snailrun.domain.metrics.RunMetrics
 import io.snailrun.domain.model.TrackPoint
 import java.time.Clock
@@ -37,9 +38,26 @@ class RunRepository(
 
     fun observeSplits(id: Long) = dao.observeSplits(id).map { splits -> splits.map { it.toDomain() } }
 
+    /**
+     * The track exactly as the chip reported it. Used to rebuild a live run after a
+     * crash, and as the input to every re-derivation. Nothing shows this to a user.
+     */
     fun observePoints(id: Long) = dao.observePoints(id).map { points -> points.map { it.toDomain() } }
 
     suspend fun pointsFor(id: Long): List<TrackPoint> = dao.pointsFor(id).map { it.toDomain() }
+
+    /**
+     * The track as the app draws and measures it: raw positions run through the current
+     * position filter.
+     *
+     * Every screen reads this one. The database keeps the raw fixes so that a better
+     * filter can be applied to runs already recorded, and the corrected track is derived
+     * on the way out rather than frozen on the way in.
+     */
+    fun observeSmoothedPoints(id: Long) = observePoints(id).map { TrackSmoother.smooth(it) }
+
+    suspend fun smoothedPointsFor(id: Long): List<TrackPoint> =
+        TrackSmoother.smooth(pointsFor(id))
 
     suspend fun unfinishedRun(): RunEntity? = dao.unfinishedRun()
 
@@ -104,7 +122,10 @@ class RunRepository(
      */
     suspend fun completeRun(runId: Long, metrics: RunMetrics, endedAtEpochMs: Long = clock.millis()) {
         val run = dao.runById(runId) ?: return
-        val points = dao.pointsFor(runId).map { it.toDomain() }
+        // Derived from the corrected track, like every figure the app shows. The live
+        // recorder ran the same filter over the same fixes in the same order, so the
+        // number that was on the screen is the number that gets stored.
+        val points = TrackSmoother.smooth(dao.pointsFor(runId).map { it.toDomain() })
 
         val splits = SplitCalculator.compute(points)
         val efforts = BestEffortFinder.findAll(points)
@@ -126,10 +147,75 @@ class RunRepository(
                 minLat = bounds.minLat, maxLat = bounds.maxLat,
                 minLon = bounds.minLon, maxLon = bounds.maxLon,
                 status = STATUS_COMPLETE,
+                smootherVersion = TrackSmoother.VERSION,
             ),
             splits = splits.map { it.toEntity(runId) },
             efforts = efforts.map { it.toEntity(runId) },
         )
+    }
+
+    /**
+     * Re-derives every stored figure for runs recorded under an older position filter.
+     *
+     * The raw positions are never touched — they are the record of what the chip said.
+     * What changes is everything computed from them: the cumulative distance on each
+     * point, the run's totals, its splits and its best efforts. Improving the filter is
+     * therefore a code change and nothing else; the runs already on the phone catch up
+     * by themselves.
+     *
+     * Returns how many runs it brought up to date.
+     */
+    suspend fun reprocessOutdatedRuns(): Int {
+        val ids = dao.runsBehindSmootherVersion(TrackSmoother.VERSION)
+        ids.forEach { reprocessRun(it) }
+        return ids.size
+    }
+
+    private suspend fun reprocessRun(runId: Long) {
+        val run = dao.runById(runId) ?: return
+        val raw = dao.pointsFor(runId).map { it.toDomain() }
+        if (raw.size < 2) {
+            dao.updateRun(run.copy(smootherVersion = TrackSmoother.VERSION))
+            return
+        }
+
+        val smoothed = TrackSmoother.smooth(raw)
+        val distance = smoothed.last().cumulativeDistanceM
+        val movingTimeMs = activeDurationOf(smoothed)
+        val bounds = smoothed.fold(Bounds()) { acc, point -> acc.extend(point) }
+
+        // Only the derived column is written back; the raw latitude and longitude stay
+        // exactly as they were recorded.
+        dao.insertPoints(
+            raw.mapIndexed { i, point ->
+                point.copy(cumulativeDistanceM = smoothed[i].cumulativeDistanceM).toEntity(runId)
+            }
+        )
+
+        dao.replaceDerived(
+            run = run.copy(
+                distanceMeters = distance,
+                movingTimeMs = movingTimeMs,
+                avgPaceSecPerKm = if (distance < 10.0) 0.0
+                    else movingTimeMs / 1000.0 / (distance / 1000.0),
+                pointCount = smoothed.size,
+                minLat = bounds.minLat, maxLat = bounds.maxLat,
+                minLon = bounds.minLon, maxLon = bounds.maxLon,
+                smootherVersion = TrackSmoother.VERSION,
+            ),
+            splits = SplitCalculator.compute(smoothed).map { it.toEntity(runId) },
+            efforts = BestEffortFinder.findAll(smoothed).map { it.toEntity(runId) },
+        )
+    }
+
+    /** Time spent running: within a segment, and across gaps short enough to be strides. */
+    private fun activeDurationOf(points: List<TrackPoint>): Long {
+        var total = 0L
+        for (i in 1 until points.size) {
+            val delta = points[i].timestampMs - points[i - 1].timestampMs
+            if (points[i].segment == points[i - 1].segment && delta in 1..30_000) total += delta
+        }
+        return total
     }
 
     suspend fun markExported(runId: Long, uri: String) {

@@ -91,6 +91,45 @@ object Traces {
         speedMps = speedMps,
     )
 
+    /**
+     * A straight run with GPS noise on every fix, as track points.
+     *
+     * The truth is exactly [seconds] * [speedMps] metres long, which is what makes this
+     * fixture useful: any distance a smoother reports can be scored against it.
+     */
+    fun noisyTrack(
+        seconds: Int,
+        speedMps: Double = 3.0,
+        noiseM: Double = 4.0,
+        accuracyM: Float = 6f,
+        seed: Long = 7L,
+        startMs: Long = START_MS,
+    ): List<TrackPoint> {
+        val random = kotlin.random.Random(seed)
+        return (0..seconds).map { i ->
+            val alongM = i * speedMps
+            val jitterLat = (random.nextDouble() * 2 - 1) * noiseM
+            val jitterLon = (random.nextDouble() * 2 - 1) * noiseM
+            val lat = metresNorth(alongM + jitterLat)
+            val lon = START_LON + jitterLon / M_PER_DEG_LON
+            TrackPoint(
+                seq = i,
+                segment = 0,
+                timestampMs = startMs + i * 1000L,
+                lat = lat,
+                lon = lon,
+                elevationM = 35.0,
+                accuracyM = accuracyM,
+                speedMps = speedMps.toFloat(),
+                // Left at zero: a smoother derives this, it never reads it.
+                cumulativeDistanceM = 0.0,
+            )
+        }
+    }
+
+    /** Metres of longitude per degree near Paris. */
+    private const val M_PER_DEG_LON = 73_170.0
+
     /** Track points laid out on a straight line, one per second at [speedMps]. */
     fun straightTrack(
         seconds: Int,

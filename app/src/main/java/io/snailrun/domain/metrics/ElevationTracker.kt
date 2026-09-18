@@ -31,7 +31,15 @@ class ElevationTracker(
     fun onFix(altitudeM: Double?, verticalAccuracyM: Float?) {
         if (altitudeM == null) return
         if (verticalAccuracyM == null || verticalAccuracyM > maxVerticalAccuracyM) return
+        onVettedElevation(altitudeM)
+    }
 
+    /**
+     * For elevations that already passed the accuracy gate once, when they were fixes.
+     * A stored track keeps no vertical accuracy, so re-deriving the climb over part of a
+     * run — a selection on the graph, say — has nothing left to gate on.
+     */
+    fun onVettedElevation(altitudeM: Double) {
         window.addLast(altitudeM)
         if (window.size > medianWindow) window.removeFirst()
         if (window.size < medianWindow) return

@@ -64,6 +64,33 @@ interface RunDao {
         insertBestEfforts(efforts)
     }
 
+    @Query("DELETE FROM splits WHERE runId = :runId")
+    suspend fun deleteSplits(runId: Long)
+
+    @Query("DELETE FROM best_efforts WHERE runId = :runId")
+    suspend fun deleteBestEfforts(runId: Long)
+
+    /**
+     * Rewrites everything derived from a run's track.
+     *
+     * The derived rows are deleted first rather than inserted over: a re-derived run is
+     * usually shorter than the raw one it replaces, and inserting on conflict alone
+     * would leave the splits and records of the longer version behind, still keyed by
+     * an index the new run never reaches.
+     */
+    @Transaction
+    suspend fun replaceDerived(
+        run: RunEntity,
+        splits: List<SplitEntity>,
+        efforts: List<BestEffortEntity>,
+    ) {
+        deleteSplits(run.id)
+        deleteBestEfforts(run.id)
+        updateRun(run)
+        insertSplits(splits)
+        insertBestEfforts(efforts)
+    }
+
     @Query("SELECT * FROM runs WHERE id = :id")
     suspend fun runById(id: Long): RunEntity?
 
@@ -134,6 +161,19 @@ interface RunDao {
         """
     )
     fun observePersonalRecord(distanceMeters: Int): Flow<PersonalRecord?>
+
+    /**
+     * Finished runs whose figures predate the current position filter. Ids only: the
+     * tracks are large and are read one run at a time.
+     */
+    @Query(
+        """
+        SELECT id FROM runs
+        WHERE status = 'COMPLETE' AND smootherVersion < :version
+        ORDER BY startedAtEpochMs DESC
+        """
+    )
+    suspend fun runsBehindSmootherVersion(version: Int): List<Long>
 
     /** Cascades to points, splits and efforts. */
     @Query("DELETE FROM runs WHERE id = :id")

@@ -53,7 +53,9 @@ class GpxExporter(
 
         val run = repository.observeRun(runId).first()
             ?: return@withContext ExportResult.Failed(IllegalStateException("run $runId is gone"))
-        val points = repository.pointsFor(runId)
+        // The corrected track, matching what the app shows. The raw fixes stay in the
+        // database; a GPX file is a copy for elsewhere, not the archive.
+        val points = repository.smoothedPointsFor(runId)
 
         runCatching {
             val name = fileName(run)
@@ -72,7 +74,7 @@ class GpxExporter(
         val run = repository.observeRun(runId).first()
             ?: return@withContext ExportResult.Failed(IllegalStateException("run $runId is gone"))
         runCatching {
-            writeTo(uri, run, repository.pointsFor(runId))
+            writeTo(uri, run, repository.smoothedPointsFor(runId))
             repository.markExported(runId, uri.toString())
             ExportResult.Written(uri)
         }.getOrElse { ExportResult.Failed(it) }
@@ -84,7 +86,7 @@ class GpxExporter(
         val directory = java.io.File(context.cacheDir, "export").apply { mkdirs() }
         val file = java.io.File(directory, fileName(run))
         file.outputStream().bufferedWriter().use { out ->
-            writer.write(out, track(run, repository.pointsFor(runId)))
+            writer.write(out, track(run, repository.smoothedPointsFor(runId)))
         }
         androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.files", file)
     }

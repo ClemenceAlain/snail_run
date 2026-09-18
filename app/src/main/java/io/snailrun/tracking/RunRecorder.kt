@@ -4,6 +4,9 @@ import io.snailrun.data.prefs.SettingsRepository
 import io.snailrun.data.repo.RunRepository
 import io.snailrun.data.repo.SOURCE_RECORDED
 import io.snailrun.domain.analysis.SplitCalculator
+import io.snailrun.domain.geo.TrackSmoother
+import io.snailrun.domain.metrics.AutoPauseDetector
+import io.snailrun.domain.metrics.AutoPauseEvent
 import io.snailrun.domain.metrics.FixOutcome
 import io.snailrun.domain.metrics.MetricsAccumulator
 import io.snailrun.domain.metrics.RunMetrics
@@ -66,6 +69,16 @@ class RunRecorder(
     private var cursor = AnnouncementCursor()
     private var runId: Long? = null
     private var startedAtEpochMs: Long = 0
+    private var autoPause: AutoPauseDetector? = null
+
+    /**
+     * A second, independent filter, used only to answer "is the runner moving".
+     *
+     * It has to be separate from the one inside the accumulator because it must keep
+     * running while the run is paused — the fixes that arrive then are the only evidence
+     * that the runner has set off again, and the accumulator throws them away.
+     */
+    private var autoPauseSmoother = TrackSmoother()
 
     private val pending = mutableListOf<TrackPoint>()
     private val recorded = mutableListOf<TrackPoint>()
@@ -77,10 +90,12 @@ class RunRecorder(
 
     /** [source] tags the run, so a demo one is never mistaken for a real one. */
     suspend fun start(source: String = SOURCE_RECORDED): Long = mutex.withLock {
-        val voice = settings.settings.first().voice
-        scheduler = AnnouncementScheduler(voice)
+        val saved = settings.settings.first()
+        scheduler = AnnouncementScheduler(saved.voice)
         cursor = AnnouncementCursor()
         accumulator = MetricsAccumulator()
+        autoPause = if (saved.autoPauseEnabled) AutoPauseDetector() else null
+        autoPauseSmoother = TrackSmoother()
         pending.clear()
         recorded.clear()
 
@@ -99,13 +114,15 @@ class RunRecorder(
         val stored = repository.pointsFor(id)
         val run = repository.observeRun(id).first() ?: return@withLock false
 
-        val voice = settings.settings.first().voice
-        scheduler = AnnouncementScheduler(voice)
+        val saved = settings.settings.first()
+        scheduler = AnnouncementScheduler(saved.voice)
         cursor = AnnouncementCursor(
             distanceMilestones = run.distanceMilestonesAnnounced,
             lastTimeAnnouncedActiveMs = run.lastTimeAnnouncedActiveMs,
         )
         accumulator = MetricsAccumulator().apply { restore(stored) }
+        autoPause = if (saved.autoPauseEnabled) AutoPauseDetector() else null
+        autoPauseSmoother = TrackSmoother()
         pending.clear()
         recorded.clear()
         recorded += stored
@@ -120,6 +137,7 @@ class RunRecorder(
 
     suspend fun onFix(fix: RawFix) = mutex.withLock {
         val id = runId ?: return@withLock
+        applyAutoPause(fix, id)
         when (val outcome = accumulator.onFix(fix)) {
             is FixOutcome.Recorded -> {
                 pending += outcome.point
@@ -136,13 +154,65 @@ class RunRecorder(
 
     suspend fun pause(manual: Boolean = true) = mutex.withLock {
         accumulator.pause(manual)
+        // A manual pause starts the detector's reasoning over: whatever it had been
+        // building towards is no longer about a run that is moving.
+        autoPause?.reset()
         runId?.let { flush(it) }
         publish()
     }
 
     suspend fun resume() = mutex.withLock {
         accumulator.resume()
+        autoPause?.reset()
         publish()
+    }
+
+    /**
+     * Stops and starts the clock on the runner's behalf.
+     *
+     * Runs before the fix reaches the accumulator, and on every fix including the ones
+     * that arrive while auto-paused — those are the only evidence that the runner has
+     * set off again, and the accumulator discards them.
+     *
+     * A manual pause is never undone here. Someone who stopped the run on purpose does
+     * not want it restarted because they walked to the car.
+     */
+    private suspend fun applyAutoPause(fix: RawFix, id: Long) {
+        val detector = autoPause ?: return
+        val status = accumulator.metrics.status
+        if (status != RunStatus.RECORDING && status != RunStatus.PAUSED_AUTO) return
+
+        val speed = speedOf(fix) ?: return
+        when (detector.onSpeed(fix.epochMs, speed, isAutoPaused = status == RunStatus.PAUSED_AUTO)) {
+            AutoPauseEvent.Pause -> {
+                accumulator.pause(manual = false)
+                flush(id)
+                publish()
+            }
+
+            AutoPauseEvent.Resume -> {
+                accumulator.resume()
+                publish()
+            }
+
+            AutoPauseEvent.None -> Unit
+        }
+    }
+
+    /**
+     * Doppler where the chip vouches for it, the filter's own velocity otherwise.
+     *
+     * Never the plain difference between two fixes: standing still, that reads about a
+     * metre per second of pure noise, which is enough to keep the clock running through
+     * every traffic light of the run.
+     */
+    private fun speedOf(fix: RawFix): Double? {
+        val smoothed = autoPauseSmoother.onFix(fix.epochMs, fix.lat, fix.lon, fix.accuracyM)
+
+        val reported = fix.speedMps?.toDouble()
+        val accuracy = fix.speedAccuracyMps
+        if (reported != null && (accuracy == null || accuracy < 1.0f)) return reported
+        return smoothed.speedMps
     }
 
     /** Finishes the run and returns its id, or null if nothing was being recorded. */

@@ -36,10 +36,9 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.snailrun.domain.model.GpsQuality
-import io.snailrun.domain.model.Split
+import io.snailrun.domain.model.RunStatus
 import io.snailrun.tracking.RecordingState
 import io.snailrun.ui.components.MetricReadout
-import io.snailrun.ui.components.SnailCard
 import io.snailrun.ui.format.RunFormat
 import io.snailrun.ui.theme.SnailType
 import io.snailrun.ui.theme.Spacing
@@ -70,6 +69,7 @@ fun RecordScreen(
         StatusRow(
             isRecording = active != null && !active.isPaused,
             isPaused = active?.isPaused == true,
+            isAutoPaused = active?.metrics?.status == RunStatus.PAUSED_AUTO,
             quality = active?.metrics?.gpsQuality ?: GpsQuality.NO_FIX,
             gpsEnabled = gpsEnabled,
             demoMode = demoMode,
@@ -101,11 +101,6 @@ fun RecordScreen(
 
         Spacer(Modifier.height(Spacing.xxl))
 
-        val splits = active?.splits.orEmpty()
-        if (splits.isNotEmpty()) {
-            SplitSparkline(splits = splits, modifier = Modifier.fillMaxWidth())
-        }
-
         // The flexible space is the design: it keeps the numbers high, where they are
         // read, and the control low, where the thumb is.
         Spacer(Modifier.weight(1f))
@@ -127,6 +122,7 @@ fun RecordScreen(
 private fun StatusRow(
     isRecording: Boolean,
     isPaused: Boolean,
+    isAutoPaused: Boolean,
     quality: GpsQuality,
     gpsEnabled: Boolean,
     demoMode: Boolean,
@@ -140,6 +136,9 @@ private fun StatusRow(
     ) {
         Text(
             text = when {
+                // Said plainly: a runner who sees "Paused" without having pressed
+                // anything needs to know the app did it, not that they mis-tapped.
+                isAutoPaused -> "Auto-paused"
                 isPaused -> "Paused"
                 isRecording -> "Recording"
                 else -> "Ready"
@@ -181,42 +180,6 @@ private fun GpsIndicator(quality: GpsQuality, gpsEnabled: Boolean, demoMode: Boo
         Spacer(Modifier.size(Spacing.s))
         Text(
             text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-/** The last few kilometre splits as bars: quick to read, no axes, no legend. */
-@Composable
-private fun SplitSparkline(splits: List<Split>, modifier: Modifier = Modifier) {
-    val recent = splits.takeLast(6)
-    val slowest = recent.maxOf { it.paceSecPerKm }.coerceAtLeast(1.0)
-
-    SnailCard(modifier = modifier) {
-        Row(
-            modifier = Modifier.fillMaxWidth().height(48.dp),
-            horizontalArrangement = Arrangement.spacedBy(Spacing.s),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            recent.forEach { split ->
-                // A faster split is a taller bar, which is the way round a runner reads it.
-                val fraction = ((slowest - split.paceSecPerKm) / slowest).toFloat()
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .height((12 + 36 * fraction.coerceIn(0f, 1f)).dp)
-                        .clip(MaterialTheme.shapes.extraSmall)
-                        .background(
-                            if (split.isPartial) MaterialTheme.colorScheme.outlineVariant
-                            else MaterialTheme.colorScheme.primary
-                        ),
-                )
-            }
-        }
-        Spacer(Modifier.height(Spacing.s))
-        Text(
-            text = "Last ${recent.size} km",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
