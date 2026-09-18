@@ -20,6 +20,7 @@ import io.snailrun.data.db.RunEntity
 import io.snailrun.domain.analysis.ProfileSample
 import io.snailrun.domain.analysis.ProfileSelection
 import io.snailrun.domain.model.LatLon
+import io.snailrun.ui.components.BasemapLayer
 import io.snailrun.ui.components.MetricRow
 import io.snailrun.ui.components.PaceProfileChart
 import io.snailrun.ui.components.RouteTrace
@@ -53,6 +54,7 @@ fun RunDetailScreen(
     onSelect: (Double, Double) -> Unit,
     onClearSelection: () -> Unit,
     modifier: Modifier = Modifier,
+    basemap: BasemapLayer? = null,
 ) {
     val run = state.run ?: return
 
@@ -82,6 +84,7 @@ fun RunDetailScreen(
             item {
                 RouteTrace(
                     segments = state.segments,
+                    basemap = basemap,
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(16f / 10f)

@@ -40,6 +40,8 @@ data class SettingsActions(
     val onAutoExport: (Boolean) -> Unit,
     val onKeepScreenOn: (Boolean) -> Unit,
     val onAutoPause: (Boolean) -> Unit,
+    val onChooseBasemap: () -> Unit,
+    val onRemoveBasemap: () -> Unit,
     val onDemoEnabled: (Boolean) -> Unit,
     val onDemoSpeedFactor: (Int) -> Unit,
 )
@@ -50,6 +52,7 @@ fun SettingsScreen(
     ttsState: TtsState,
     actions: SettingsActions,
     modifier: Modifier = Modifier,
+    basemapStatus: String = "No map file yet.",
 ) {
     Column(
         modifier = modifier
@@ -166,6 +169,34 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+
+        Spacer(Modifier.height(Spacing.section))
+        SectionTitle("Map")
+
+        SnailCard(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = basemapStatus,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(Spacing.s))
+            Text(
+                text = "A map file lives on the phone, like everything else here. Put an " +
+                    "MBTiles extract of where you run on the device and pick it once; " +
+                    "your runs are then drawn on it. Runs outside what it covers still " +
+                    "draw as a plain trace.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                TextButton(onClick = actions.onChooseBasemap) {
+                    Text(if (settings.basemapUri == null) "Choose map file" else "Replace")
+                }
+                if (settings.basemapUri != null) {
+                    TextButton(onClick = actions.onRemoveBasemap) { Text("Remove") }
+                }
+            }
         }
 
         Spacer(Modifier.height(Spacing.section))

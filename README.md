@@ -14,13 +14,14 @@ network socket. Nothing it records can leave the device.
 - Optionally stops the clock when you stop, and starts it again when you move off.
 - Speaks your pace aloud at every kilometre, using an on-device speech engine.
 - Saves every finished run as a GPX file in a folder you pick once.
-- Lists past runs, and shows one with its trace, its pace-and-elevation graph and any
-  records. Drag across the graph for the average over any stretch.
+- Lists past runs as a list or a calendar, and shows one with its trace, its
+  pace-and-elevation graph and any records. Drag across the graph for the average over
+  any stretch.
+- Draws the trace on an offline map, if you put one on the phone.
 - Survives being killed mid-run: the track is in the database, and the app offers to
   finish or continue it on next launch.
 
-Planned next: a calendar view, an offline basemap behind the trace, then progress charts
-and GPX import.
+Planned next: progress charts.
 
 ## Demo mode
 
@@ -38,6 +39,20 @@ it runs, and excluded from personal records. Delete it from its own screen when 
 
 The generator lives in `domain/demo/DemoRoute.kt` and is pure, so the trace the phone
 replays is the one the tests assert on.
+
+## The map
+
+Settings → Map. There is no map tile in the app and no way to fetch one, so the map is a
+file you put on the phone: an **MBTiles** raster extract of wherever you run. Pick it
+once and it is copied into the app's own storage — SQLite needs a path, and a picked file
+can be moved or deleted out from under a run.
+
+- Zoom levels are read from the tiles themselves, not from what the file claims, because
+  hand-cut extracts routinely claim wrong.
+- A run outside what the file covers still draws, as a plain trace over blank.
+- With a map present the trace is projected in Web Mercator rather than the app's own
+  equirectangular projection. Tiles are cut to Mercator by definition, and mixing the two
+  puts the trace visibly beside the road it was run on.
 
 ## Requirements
 

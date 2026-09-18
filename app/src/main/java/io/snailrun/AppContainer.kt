@@ -1,6 +1,7 @@
 package io.snailrun
 
 import android.content.Context
+import io.snailrun.data.basemap.BasemapStore
 import io.snailrun.data.db.SnailDatabase
 import io.snailrun.data.location.DemoLocationSource
 import io.snailrun.data.location.LocationSource
@@ -52,6 +53,8 @@ class AppContainer(private val context: Context) {
         } else {
             locationSource
         }
+
+    val basemapStore: BasemapStore by lazy { BasemapStore(context, settings) }
 
     val voiceAnnouncer: VoiceAnnouncer by lazy {
         AndroidVoiceAnnouncer(

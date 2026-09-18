@@ -23,7 +23,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.PermissionChecker
@@ -39,6 +42,8 @@ import io.snailrun.data.voice.TtsState
 import io.snailrun.data.prefs.Settings as AppSettings
 import io.snailrun.tracking.RecordingState
 import io.snailrun.tracking.RunRecordingService
+import io.snailrun.data.basemap.BasemapInstall
+import io.snailrun.ui.components.BasemapLayer
 import io.snailrun.ui.detail.RunDetailActions
 import io.snailrun.ui.detail.RunDetailScreen
 import io.snailrun.ui.detail.RunDetailTopBar
@@ -231,6 +236,28 @@ class MainActivity : ComponentActivity() {
                 onSelect = viewModel::select,
                 onClearSelection = viewModel::clearSelection,
                 modifier = Modifier.padding(insets),
+                basemap = basemapLayer(),
+            )
+        }
+    }
+
+    /**
+     * The tile layer, or null when the phone has no map file. Read once per composition
+     * rather than held: with no file there is nothing to open, and the trace draws
+     * exactly as it did before basemaps existed.
+     */
+    @Composable
+    private fun basemapLayer(): BasemapLayer? {
+        val store = container.basemapStore
+        val info by produceState<io.snailrun.data.basemap.BasemapInfo?>(null) {
+            value = store.info()
+        }
+        val current = info ?: return null
+        return remember(current) {
+            BasemapLayer(
+                minZoom = current.minZoom,
+                maxZoom = current.maxZoom,
+                tile = { zoom, x, y -> store.tile(zoom, x, y) },
             )
         }
     }
@@ -263,6 +290,37 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        var basemapStatus by remember { mutableStateOf("No map file yet.") }
+        LaunchedEffect(settings.basemapUri) {
+            val info = container.basemapStore.info()
+            basemapStatus = when {
+                info == null -> "No map file yet."
+                else -> buildString {
+                    append(info.name ?: "Map file")
+                    append(" · zoom ${info.minZoom}–${info.maxZoom}")
+                    append(" · ${info.tileCount} tiles")
+                    append(" · ${info.sizeBytes / 1_000_000} MB")
+                }
+            }
+        }
+
+        val basemapPicker = rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenDocument(),
+        ) { uri ->
+            if (uri != null) {
+                scope.launch {
+                    basemapStatus = "Copying the map file…"
+                    basemapStatus = when (val result = container.basemapStore.install(uri)) {
+                        is BasemapInstall.Installed -> "Map file ready."
+                        BasemapInstall.NotAnMbtilesFile ->
+                            "That file is not an MBTiles map. Nothing was changed."
+                        is BasemapInstall.Failed ->
+                            "Could not use that file: ${result.error.message}"
+                    }
+                }
+            }
+        }
+
         val actions = remember {
             SettingsActions(
                 onVoiceEnabled = { scope.launch { container.settings.setVoiceEnabled(it) } },
@@ -285,6 +343,10 @@ class MainActivity : ComponentActivity() {
                 onAutoExport = { scope.launch { container.settings.setAutoExportEnabled(it) } },
                 onKeepScreenOn = { scope.launch { container.settings.setKeepScreenOn(it) } },
                 onAutoPause = { scope.launch { container.settings.setAutoPauseEnabled(it) } },
+                // Any type: MBTiles has no registered MIME type, and pickers on
+                // de-Googled builds hide anything they cannot name.
+                onChooseBasemap = { basemapPicker.launch(arrayOf("*/*")) },
+                onRemoveBasemap = { scope.launch { container.basemapStore.remove() } },
                 onDemoEnabled = { scope.launch { container.settings.setDemoEnabled(it) } },
                 onDemoSpeedFactor = { scope.launch { container.settings.setDemoSpeedFactor(it) } },
             )
@@ -295,6 +357,7 @@ class MainActivity : ComponentActivity() {
             ttsState = ttsState,
             actions = actions,
             modifier = Modifier,
+            basemapStatus = basemapStatus,
         )
     }
 
