@@ -12,6 +12,8 @@ import io.snailrun.domain.coach.SegmentResult
 import io.snailrun.domain.coach.WorkoutReview
 import io.snailrun.domain.analysis.BestEffortFinder
 import io.snailrun.domain.analysis.TrackProfile
+import io.snailrun.domain.metrics.GapKind
+import io.snailrun.domain.metrics.TrackGaps
 import io.snailrun.domain.model.LatLon
 import io.snailrun.domain.model.TrackPoint
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,6 +49,7 @@ class RunDetailViewModel(
                 RunDetailUiState(
                     run = run,
                     segments = track.toSegments(),
+                    inferred = TrackGaps.inferredLegs(track),
                     profile = TrackProfile.sample(track),
                     records = emptyList(),
                 )
@@ -141,10 +144,33 @@ class RunDetailViewModel(
     }
 }
 
-/** Splits the track at pause boundaries so a gap is never drawn as a straight line. */
-fun List<TrackPoint>.toSegments(): List<List<LatLon>> =
-    groupBy { it.segment }
-        .toSortedMap()
-        .values
-        .map { segment -> segment.map { LatLon(it.lat, it.lon) } }
-        .filter { it.size >= 2 }
+/**
+ * Splits the track where nothing may be drawn across it.
+ *
+ * At every pause, and at every hole in the fixes the app refused to account for. The
+ * second is derived rather than stored, so a run recorded before the rule existed is
+ * drawn under it too — and a hole that contributed no distance never becomes a line
+ * across town.
+ */
+fun List<TrackPoint>.toSegments(): List<List<LatLon>> {
+    val segments = mutableListOf<List<LatLon>>()
+    var current = mutableListOf<LatLon>()
+
+    forEachIndexed { index, point ->
+        val before = getOrNull(index - 1)
+        val cut = before != null && (
+            point.segment != before.segment ||
+                TrackGaps.classify(
+                    gapMs = point.timestampMs - before.timestampMs,
+                    straightLineM = point.cumulativeDistanceM - before.cumulativeDistanceM,
+                ) == GapKind.Broken
+            )
+        if (cut) {
+            segments += current
+            current = mutableListOf()
+        }
+        current += LatLon(point.lat, point.lon)
+    }
+    segments += current
+    return segments.filter { it.size >= 2 }
+}

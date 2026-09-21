@@ -52,6 +52,68 @@ class MetricsAccumulatorTest {
     }
 
     @Test
+    fun `losing GPS in a tunnel does not stop the clock`() {
+        val accumulator = MetricsAccumulator()
+        // Two minutes of running, three minutes of tunnel, two minutes more.
+        Traces.runWithDropout(beforeSeconds = 120, dropoutSeconds = 180, afterSeconds = 120)
+            .forEach { accumulator.onFix(it) }
+
+        val metrics = accumulator.metrics
+        // Seven minutes on the clock, not the four the chip could see.
+        assertEquals(418_000L, metrics.activeDurationMs)
+        // And the ground covered through it, as a straight line.
+        assertEquals(418.0 * 3.0, metrics.distanceMeters, 418.0 * 3.0 * 0.03)
+        // One segment: the itinerary is inferred, so the trace is not cut.
+        assertEquals(0, metrics.segment)
+    }
+
+    @Test
+    fun `the pace after a dropout is the one the dropout implies`() {
+        val accumulator = MetricsAccumulator()
+        Traces.runWithDropout(beforeSeconds = 60, dropoutSeconds = 120, afterSeconds = 1, speedMps = 3.0)
+            .forEach { accumulator.onFix(it) }
+
+        // 3 m/s is 5:33/km, whatever the chip happened to report on the fix that
+        // ended the hole.
+        assertEquals(333.3, accumulator.metrics.paceSecPerKm!!, 5.0)
+    }
+
+    @Test
+    fun `a ride across town while the signal is gone is not counted as running`() {
+        val accumulator = MetricsAccumulator()
+        Traces.runWithDropout(
+            beforeSeconds = 120,
+            dropoutSeconds = 300,
+            afterSeconds = 60,
+            // Five kilometres in five minutes: the metro, not the runner.
+            movedDuringDropoutM = 5_000.0,
+        ).forEach { accumulator.onFix(it) }
+
+        val metrics = accumulator.metrics
+        // The two stretches that were recorded, and nothing between them. Two seconds
+        // short of both, because the fix that ends the ride looks like a reflection
+        // until it has been repeated — which is exactly what it should look like.
+        assertEquals(176_000L, metrics.activeDurationMs)
+        assertEquals(176.0 * 3.0, metrics.distanceMeters, 176.0 * 3.0 * 0.05)
+        // A new segment, so nothing is drawn across the ride either.
+        assertEquals(1, metrics.segment)
+    }
+
+    @Test
+    fun `standing still with no signal buys no moving time`() {
+        val accumulator = MetricsAccumulator()
+        Traces.runWithDropout(
+            beforeSeconds = 120,
+            dropoutSeconds = 240,
+            afterSeconds = 60,
+            // Four minutes on a doorstep: the fix comes back where it left off.
+            movedDuringDropoutM = 2.0,
+        ).forEach { accumulator.onFix(it) }
+
+        assertEquals(178_000L, accumulator.metrics.activeDurationMs)
+    }
+
+    @Test
     fun `pausing and resuming increments the segment so the trace is not bridged`() {
         val accumulator = MetricsAccumulator()
         accumulator.onFix(Traces.fix(0.0, Traces.START_MS))

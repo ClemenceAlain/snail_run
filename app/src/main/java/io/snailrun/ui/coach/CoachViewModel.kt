@@ -9,6 +9,8 @@ import io.snailrun.data.db.RunEntity
 import io.snailrun.data.prefs.CoachSettings
 import io.snailrun.data.prefs.SettingsRepository
 import io.snailrun.data.repo.RunRepository
+import io.snailrun.domain.coach.Baselines
+import io.snailrun.domain.coach.CoachBaseline
 import io.snailrun.domain.coach.Fitness
 import io.snailrun.domain.coach.RaceGoal
 import io.snailrun.domain.coach.WeekPlan
@@ -32,6 +34,15 @@ data class CoachUiState(
     val expanded: LocalDate? = null,
     /** Which of [weeks] is on screen. One at a time, stepped with the arrows. */
     val weekIndex: Int = 0,
+    /** What the runner said about the weeks before the app, if they were asked. */
+    val baseline: CoachBaseline? = null,
+    /**
+     * Whether the questions are worth putting at the top of the screen: unanswered, and
+     * the app has too little history to plan from. A runner with a month of runs behind
+     * them is not asked — the app already knows, and the card would be nagging.
+     */
+    val askBaseline: Boolean = false,
+    val editingBaseline: Boolean = false,
 ) {
     val fitness get() = weeks.firstOrNull()?.fitness
     val week get() = weeks.getOrNull(weekIndex)
@@ -68,6 +79,7 @@ class CoachViewModel(
                 _ui.value = state.copy(
                     expanded = _ui.value.expanded,
                     weekIndex = _ui.value.weekIndex.coerceIn(0, (state.weeks.size - 1).coerceAtLeast(0)),
+                    editingBaseline = _ui.value.editingBaseline,
                 )
             }
         }
@@ -81,6 +93,22 @@ class CoachViewModel(
             // leave a card expanded that the reader can no longer see.
             expanded = null,
         )
+    }
+
+    /**
+     * Opens or closes the starting-point form.
+     *
+     * Held in the view model rather than the card, so leaving the tab and coming back
+     * does not drop half-typed answers on the floor.
+     */
+    fun editBaseline(editing: Boolean) {
+        _ui.value = _ui.value.copy(editingBaseline = editing)
+    }
+
+    /** Saves the answers, or records that they were declined. Null is both. */
+    fun saveBaseline(baseline: CoachBaseline?) {
+        _ui.value = _ui.value.copy(editingBaseline = false)
+        viewModelScope.launch { settings.setCoachBaseline(baseline) }
     }
 
     fun expand(date: LocalDate) {
@@ -117,6 +145,8 @@ class CoachViewModel(
         }
     }
 
+    private val recently get() = today.minusDays(Baselines.WINDOW_DAYS).toString()
+
     private fun build(
         runs: List<RunEntity>,
         efforts: List<PersonalRecord>,
@@ -130,6 +160,9 @@ class CoachViewModel(
                 saved.targetDateEpochDay?.let { RaceGoal(distance, LocalDate.ofEpochDay(it)) }
             },
             loaded = true,
+            baseline = saved.baseline,
+            askBaseline = !saved.baselineAsked && saved.baseline == null &&
+                runs.count { it.localDate >= recently } < ENOUGH_HISTORY,
         )
     }
 
@@ -139,6 +172,15 @@ class CoachViewModel(
      * with the phone it is running on.
      */
     private fun firstDayOfWeek(): DayOfWeek = WeekFields.of(Locale.getDefault()).firstDayOfWeek
+
+    private companion object {
+        /**
+         * Runs in the last four weeks past which the coach has enough to go on. Six is
+         * a fortnight of running three days a week: enough for a ramp, a ratio and a
+         * long run to mean something.
+         */
+        const val ENOUGH_HISTORY = 6
+    }
 
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")

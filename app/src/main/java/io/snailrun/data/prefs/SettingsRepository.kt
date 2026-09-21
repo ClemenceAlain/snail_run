@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import io.snailrun.domain.coach.CoachBaseline
 import io.snailrun.domain.voice.VoiceConfig
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -61,6 +62,17 @@ data class CoachSettings(
      * the whole voice with it.
      */
     val nudgeOffPace: Boolean = false,
+    /**
+     * What the runner said they had been doing before the app was watching, if they
+     * answered. See [CoachBaseline] — it is history, not a setting, which is why it is
+     * in the backup along with the runs.
+     */
+    val baseline: CoachBaseline? = null,
+    /**
+     * Whether the questions have been put. Separate from [baseline] because declining
+     * them is an answer: without this the card would ask again on every visit.
+     */
+    val baselineAsked: Boolean = false,
 )
 
 /**
@@ -86,6 +98,69 @@ internal object DayOrders {
             // written by a version that meant something different by it.
             if (order.sorted() != (0..6).toList()) null else week to order
         }.toMap()
+    }
+}
+
+/**
+ * The coach's state as flat strings, which is what a backup can carry.
+ *
+ * Here rather than in the backup class because the encoding of a day order and of a
+ * baseline already lives here, and two codecs for the same string is how a restore ends
+ * up reading a week it cannot reproduce. A key that is absent means the value was not
+ * set, which is the same thing the preference store means by it.
+ */
+fun CoachSettings.toBackupRows(): Map<String, String> = buildMap {
+    targetDistanceMeters?.let { put("target_distance", it.toString()) }
+    targetDateEpochDay?.let { put("target_date", it.toString()) }
+    DayOrders.encode(dayOrders).takeIf { it.isNotEmpty() }?.let { put("day_orders", it) }
+    put("nudge_off_pace", nudgeOffPace.toString())
+    baseline?.let { put("baseline", CoachBaselines.encode(it)) }
+    put("baseline_asked", baselineAsked.toString())
+}
+
+fun coachSettingsFrom(rows: Map<String, String>): CoachSettings = CoachSettings(
+    targetDistanceMeters = rows["target_distance"]?.toIntOrNull(),
+    targetDateEpochDay = rows["target_date"]?.toLongOrNull(),
+    dayOrders = DayOrders.decode(rows["day_orders"]),
+    nudgeOffPace = rows["nudge_off_pace"].toBoolean(),
+    baseline = CoachBaselines.decode(rows["baseline"]),
+    baselineAsked = rows["baseline_asked"].toBoolean(),
+)
+
+/**
+ * `runsPerWeek,weeklyM,longestM,raceM,raceMs,raceDay,recordedDay`
+ *
+ * One string rather than seven preferences, for the same reason [DayOrders] is one: the
+ * seven are written together and mean nothing apart, and a half-written set is a
+ * description of four weeks that never happened. An unparseable string reads as no
+ * baseline at all, which is the state the coach was designed around anyway.
+ */
+internal object CoachBaselines {
+
+    fun encode(baseline: CoachBaseline): String = listOf(
+        baseline.runsPerWeek,
+        baseline.weeklyMeters.toLong(),
+        baseline.longestRunMeters.toLong(),
+        baseline.raceDistanceMeters ?: 0,
+        baseline.raceDurationMs ?: 0L,
+        baseline.raceDateEpochDay ?: 0L,
+        baseline.recordedOnEpochDay,
+    ).joinToString(",")
+
+    fun decode(raw: String?): CoachBaseline? {
+        if (raw.isNullOrBlank()) return null
+        val parts = raw.split(",")
+        if (parts.size != 7) return null
+        val numbers = parts.map { it.trim().toLongOrNull() ?: return null }
+        return CoachBaseline(
+            runsPerWeek = numbers[0].toInt(),
+            weeklyMeters = numbers[1].toDouble(),
+            longestRunMeters = numbers[2].toDouble(),
+            raceDistanceMeters = numbers[3].toInt().takeIf { it > 0 },
+            raceDurationMs = numbers[4].takeIf { it > 0 },
+            raceDateEpochDay = numbers[5].takeIf { it > 0 },
+            recordedOnEpochDay = numbers[6],
+        )
     }
 }
 
@@ -168,6 +243,43 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setCoachNudgeOffPace(value: Boolean) = edit { it[COACH_NUDGE_OFF_PACE] = value }
 
+    /**
+     * Writes the starting point, or clears it.
+     *
+     * One call for all of it: the answers describe one set of four weeks, and half of
+     * them written against a [CoachBaseline.recordedOnEpochDay] from a different day
+     * would describe four weeks that never happened.
+     */
+    suspend fun setCoachBaseline(baseline: CoachBaseline?) = edit {
+        it[COACH_BASELINE_ASKED] = true
+        if (baseline == null) {
+            it.remove(COACH_BASELINE)
+        } else {
+            it[COACH_BASELINE] = CoachBaselines.encode(baseline)
+        }
+    }
+
+    /**
+     * Puts the coach back as a restored backup found it.
+     *
+     * One edit, and it overwrites rather than merges: the file describes one coherent
+     * coach, and half of this phone's race goal beside half of the backup's is a state
+     * neither of them was ever in.
+     */
+    suspend fun restoreCoach(coach: CoachSettings) = edit { prefs ->
+        prefs.remove(COACH_TARGET_DISTANCE)
+        prefs.remove(COACH_TARGET_DATE)
+        prefs.remove(COACH_DAY_ORDERS)
+        prefs.remove(COACH_BASELINE)
+        coach.targetDistanceMeters?.let { prefs[COACH_TARGET_DISTANCE] = it }
+        coach.targetDateEpochDay?.let { prefs[COACH_TARGET_DATE] = it }
+        DayOrders.encode(coach.dayOrders).takeIf { it.isNotEmpty() }
+            ?.let { prefs[COACH_DAY_ORDERS] = it }
+        coach.baseline?.let { prefs[COACH_BASELINE] = CoachBaselines.encode(it) }
+        prefs[COACH_NUDGE_OFF_PACE] = coach.nudgeOffPace
+        prefs[COACH_BASELINE_ASKED] = coach.baselineAsked
+    }
+
     suspend fun setBasemapUri(uri: String?) = edit {
         if (uri == null) it.remove(BASEMAP_URI) else it[BASEMAP_URI] = uri
     }
@@ -200,6 +312,8 @@ class SettingsRepository(private val context: Context) {
             targetDateEpochDay = this[COACH_TARGET_DATE],
             dayOrders = DayOrders.decode(this[COACH_DAY_ORDERS]),
             nudgeOffPace = this[COACH_NUDGE_OFF_PACE] ?: false,
+            baseline = CoachBaselines.decode(this[COACH_BASELINE]),
+            baselineAsked = this[COACH_BASELINE_ASKED] ?: false,
         ),
     )
 
@@ -222,5 +336,7 @@ class SettingsRepository(private val context: Context) {
         val COACH_TARGET_DATE = longPreferencesKey("coach_target_date")
         val COACH_DAY_ORDERS = stringPreferencesKey("coach_day_orders")
         val COACH_NUDGE_OFF_PACE = booleanPreferencesKey("coach_nudge_off_pace")
+        val COACH_BASELINE = stringPreferencesKey("coach_baseline")
+        val COACH_BASELINE_ASKED = booleanPreferencesKey("coach_baseline_asked")
     }
 }

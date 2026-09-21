@@ -250,6 +250,8 @@ class MainActivity : ComponentActivity() {
                 container.armedWorkout = workout
                 onRunSession()
             },
+            onEditBaseline = viewModel::editBaseline,
+            onSaveBaseline = viewModel::saveBaseline,
             today = LocalDate.now(),
         )
     }

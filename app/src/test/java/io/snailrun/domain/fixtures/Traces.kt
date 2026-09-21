@@ -70,6 +70,32 @@ object Traces {
         return fixes
     }
 
+    /**
+     * A run whose fixes stop dead for [dropoutSeconds] and come back.
+     *
+     * The runner keeps going through the hole at the same pace — a tunnel, a station
+     * underpass, a street of tall buildings — so the fix that ends it lands exactly where
+     * they would be. [movedDuringDropoutM] overrides that for the cases where they did
+     * not: a coffee stop with the phone on a table, or a ride across town.
+     */
+    fun runWithDropout(
+        beforeSeconds: Int,
+        dropoutSeconds: Int,
+        afterSeconds: Int,
+        speedMps: Double = 3.0,
+        movedDuringDropoutM: Double = dropoutSeconds * speedMps,
+    ): List<RawFix> {
+        val before = (0 until beforeSeconds).map { i ->
+            fix(i * speedMps, START_MS + i * 1000L)
+        }
+        val resumeAtM = (beforeSeconds - 1) * speedMps + movedDuringDropoutM
+        val resumeAtMs = START_MS + (beforeSeconds - 1 + dropoutSeconds) * 1000L
+        val after = (0 until afterSeconds).map { i ->
+            fix(resumeAtM + i * speedMps, resumeAtMs + i * 1000L)
+        }
+        return before + after
+    }
+
     /** A wild outlier fix, the shape a reflection off a building takes. */
     fun teleport(fromMs: Long, metresAway: Double = 800.0): RawFix =
         fix(metresAway, fromMs, accuracyM = 18f)

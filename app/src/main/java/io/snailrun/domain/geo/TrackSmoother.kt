@@ -1,5 +1,7 @@
 package io.snailrun.domain.geo
 
+import io.snailrun.domain.metrics.GapKind
+import io.snailrun.domain.metrics.TrackGaps
 import io.snailrun.domain.model.TrackPoint
 import kotlin.math.hypot
 import kotlin.math.sqrt
@@ -280,7 +282,7 @@ class TrackSmoother(private val config: Config = Config()) {
          * derived with, so improving the filter reprocesses the runs already recorded
          * instead of leaving them on the old numbers.
          */
-        const val VERSION = 1
+        const val VERSION = 2
 
         /**
          * Smoothed positions never move far enough per fix to need a jitter floor, so
@@ -305,6 +307,8 @@ class TrackSmoother(private val config: Config = Config()) {
             var previous: SmoothedFix? = null
             var segment = points.first().segment
 
+            var previousPoint: TrackPoint? = null
+
             for (point in points) {
                 // Each pause boundary is a fresh start: velocity carried across a pause
                 // would fabricate a step the runner never took.
@@ -312,7 +316,26 @@ class TrackSmoother(private val config: Config = Config()) {
                     smoother.reset()
                     previous = null
                     segment = point.segment
+                } else previousPoint?.let { before ->
+                    // A hole in the fixes, judged by the same rules the live run used, so
+                    // a stored run and the screen that recorded it cannot disagree.
+                    val gap = point.timestampMs - before.timestampMs
+                    val straight = GeoDistance.between(before.lat, before.lon, point.lat, point.lon)
+                    when (TrackGaps.classify(gap, straight)) {
+                        // Believe the fix that ends the dropout outright rather than
+                        // predicting a minute of velocity onto it; the straight line to
+                        // it is still counted, because the runner ran it.
+                        GapKind.Inferred -> smoother.reset()
+                        // Nothing may cross a hole this big: not the distance, and not
+                        // the drawn line.
+                        GapKind.Broken -> {
+                            smoother.reset()
+                            previous = null
+                        }
+                        GapKind.Continuous -> Unit
+                    }
                 }
+                previousPoint = point
 
                 val fix = smoother.onFix(point.timestampMs, point.lat, point.lon, point.accuracyM)
                 previous?.let {

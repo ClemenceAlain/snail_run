@@ -18,6 +18,7 @@ import io.snailrun.domain.metrics.AutoPauseEvent
 import io.snailrun.domain.metrics.FixOutcome
 import io.snailrun.domain.metrics.MetricsAccumulator
 import io.snailrun.domain.metrics.RunMetrics
+import io.snailrun.domain.metrics.TrackGaps
 import io.snailrun.domain.model.RawFix
 import io.snailrun.domain.model.RunStatus
 import io.snailrun.domain.model.Split
@@ -92,6 +93,9 @@ class RunRecorder(
      */
     private var autoPauseSmoother = TrackSmoother()
 
+    /** When the last fix of any kind arrived, so a hole in them can be noticed. */
+    private var lastFixMs: Long? = null
+
     private var workout: WorkoutScheduler? = null
     private var workoutType: WorkoutType? = null
     private var workoutCursor = WorkoutCursor()
@@ -132,6 +136,7 @@ class RunRecorder(
         voiceEnabled = saved.voice.enabled
         autoPause = if (saved.autoPauseEnabled) AutoPauseDetector() else null
         autoPauseSmoother = TrackSmoother()
+        lastFixMs = null
         pending.clear()
         recorded.clear()
 
@@ -182,6 +187,7 @@ class RunRecorder(
         workoutCursor = replayWorkout(stored, run.workoutAdvancesActiveMs)
         autoPause = if (saved.autoPauseEnabled) AutoPauseDetector() else null
         autoPauseSmoother = TrackSmoother()
+        lastFixMs = null
         pending.clear()
         recorded.clear()
         recorded += stored
@@ -196,6 +202,20 @@ class RunRecorder(
 
     suspend fun onFix(fix: RawFix) = mutex.withLock {
         val id = runId ?: return@withLock
+
+        // A hole in the fixes wipes what the auto-pause detector was thinking. Its
+        // countdown is wall-clock between fixes, so a runner whose last fix before a
+        // tunnel read slow would be paused by the first fix out of it — three minutes
+        // of silence counted as three minutes of standing still. The filter it reads
+        // has no velocity across a hole either.
+        lastFixMs?.let { previous ->
+            if (fix.epochMs - previous > TrackGaps.CONTINUOUS_MS) {
+                autoPause?.reset()
+                autoPauseSmoother = TrackSmoother()
+            }
+        }
+        lastFixMs = fix.epochMs
+
         applyAutoPause(fix, id)
         when (val outcome = accumulator.onFix(fix)) {
             is FixOutcome.Recorded -> {
@@ -399,7 +419,12 @@ class RunRecorder(
         points.forEach { point ->
             previous?.let { before ->
                 val delta = point.timestampMs - before.timestampMs
-                if (point.segment == before.segment && delta in 1..30_000) activeMs += delta
+                if (point.segment == before.segment) {
+                    activeMs += TrackGaps.countable(
+                        gapMs = delta,
+                        straightLineM = point.cumulativeDistanceM - before.cumulativeDistanceM,
+                    )
+                }
             }
             previous = point
 

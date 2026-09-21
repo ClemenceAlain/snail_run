@@ -35,6 +35,7 @@ import io.snailrun.ui.components.MetricRow
 import io.snailrun.ui.components.PaceProfileChart
 import io.snailrun.ui.components.RouteTrace
 import io.snailrun.domain.coach.SegmentResult
+import io.snailrun.domain.metrics.InferredLeg
 import io.snailrun.domain.coach.WorkoutType
 import io.snailrun.ui.components.SnailCard
 import io.snailrun.ui.format.RunFormat
@@ -63,6 +64,8 @@ data class RunDetailUiState(
     val records: List<Pair<Int, Long>> = emptyList(),
     /** The session this run was guided through, and what was run in each step of it. */
     val session: List<SegmentResult> = emptyList(),
+    /** Stretches the app had to reconstruct, because the chip lost the sky. */
+    val inferred: List<InferredLeg> = emptyList(),
 )
 
 @Composable
@@ -193,6 +196,13 @@ fun RunDetailScreen(
             }
         }
 
+        if (state.inferred.isNotEmpty()) {
+            item {
+                Spacer(Modifier.height(Spacing.section))
+                InferredCard(state.inferred)
+            }
+        }
+
         item {
             Spacer(Modifier.height(Spacing.section))
             Text(
@@ -202,6 +212,41 @@ fun RunDetailScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+/**
+ * Where the chip lost the sky, and what the app did about it.
+ *
+ * Said rather than drawn. A dashed line on a trace this size is a few pixels nobody
+ * reads; the figures below are the run's own — this is the one stretch of it the app
+ * worked out rather than measured, and a runner comparing today with last Tuesday is
+ * owed that plainly.
+ */
+@Composable
+private fun InferredCard(legs: List<InferredLeg>) {
+    SnailCard(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = if (legs.size == 1) "GPS lost once" else "GPS lost ${legs.size} times",
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Spacer(Modifier.height(Spacing.s))
+        legs.forEach { leg ->
+            Text(
+                text = "${RunFormat.duration(leg.gapMs)} without a fix, " +
+                    "${RunFormat.distanceKm(leg.meters)} km inferred in a straight line" +
+                    (leg.paceSecPerKm?.let { " at ${RunFormat.pace(it)} /km" } ?: "") + ".",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.height(Spacing.s))
+        Text(
+            text = "The clock kept running, because you did. The route between the two " +
+                "fixes is the only one the data supports.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

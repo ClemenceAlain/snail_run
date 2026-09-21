@@ -39,6 +39,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import io.snailrun.domain.coach.CoachBaseline
 import io.snailrun.domain.coach.Confidence
 import io.snailrun.domain.coach.PlannedDay
 import io.snailrun.domain.coach.Races
@@ -99,6 +100,8 @@ fun CoachScreen(
     onResetWeek: (LocalDate) -> Unit,
     onShowWeek: (Int) -> Unit,
     onRunSession: (Workout) -> Unit,
+    onEditBaseline: (Boolean) -> Unit,
+    onSaveBaseline: (CoachBaseline?) -> Unit,
     today: LocalDate,
     modifier: Modifier = Modifier,
 ) {
@@ -129,6 +132,20 @@ fun CoachScreen(
                     modifier = Modifier.weight(1f),
                 )
                 HelpButton(title = "Coach", body = CoachHelp)
+            }
+        }
+
+        // Above the week, while it is the thing most worth doing: a plan built from
+        // nothing is the one the runner is least likely to follow.
+        if (state.askBaseline || state.editingBaseline) {
+            item {
+                BaselineCard(
+                    baseline = state.baseline,
+                    editing = state.editingBaseline,
+                    today = today,
+                    onEdit = onEditBaseline,
+                    onSave = onSaveBaseline,
+                )
             }
         }
 
@@ -164,6 +181,21 @@ fun CoachScreen(
         }
 
         item { FitnessCard(state) }
+
+        // Below everything otherwise: a footnote about where the numbers above came
+        // from — and the way back in for a runner who has history but still wants to
+        // tell the coach about a race it never saw.
+        if (!state.askBaseline && !state.editingBaseline) {
+            item {
+                BaselineCard(
+                    baseline = state.baseline,
+                    editing = false,
+                    today = today,
+                    onEdit = onEditBaseline,
+                    onSave = onSaveBaseline,
+                )
+            }
+        }
     }
 }
 

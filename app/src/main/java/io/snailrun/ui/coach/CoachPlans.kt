@@ -3,6 +3,7 @@ package io.snailrun.ui.coach
 import io.snailrun.data.db.PersonalRecord
 import io.snailrun.data.db.RunEntity
 import io.snailrun.data.prefs.CoachSettings
+import io.snailrun.domain.coach.Baselines
 import io.snailrun.domain.coach.CoachRun
 import io.snailrun.domain.coach.Fitness
 import io.snailrun.domain.coach.RaceGoal
@@ -36,16 +37,28 @@ object CoachPlans {
         firstDayOfWeek: DayOfWeek,
         weeks: Int = COACH_WEEKS,
     ): List<WeekPlan> {
-        val coachRuns = runs.mapNotNull { run ->
+        val recorded = runs.mapNotNull { run ->
             val date = runCatching { LocalDate.parse(run.localDate) }.getOrNull()
                 ?: return@mapNotNull null
             CoachRun(date = date, meters = run.distanceMeters, movingMs = run.movingTimeMs)
         }
+        // What the runner told the coach about the weeks before it was installed, on the
+        // days they have not since filled with a real run. They are runs like any other
+        // from here on, which is what keeps one set of rules rather than two.
+        val coachRuns = recorded + (
+            saved.baseline?.let { Baselines.syntheticRuns(it, recorded) }.orEmpty()
+            )
         val weekStart = today.with(TemporalAdjusters.previousOrSame(firstDayOfWeek))
 
         return WeekPlanner.block(
             runs = coachRuns,
-            fitness = Fitness.estimate(efforts.map { it.toRecentEffort() }, today),
+            fitness = Fitness.estimate(
+                // The race they reported competes with the efforts the app has found
+                // for itself, on the same terms: the best one wins, and an old one falls
+                // out of the ten-week window on its own.
+                efforts = efforts.map { it.toRecentEffort() } + listOfNotNull(saved.baseline?.race),
+                today = today,
+            ),
             goal = saved.toGoal(),
             firstWeekStart = weekStart,
             today = today,

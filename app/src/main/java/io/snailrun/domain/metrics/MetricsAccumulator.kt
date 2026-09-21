@@ -101,7 +101,7 @@ class MetricsAccumulator(
         segment = last.segment + 1
         lastPoint = last
         lastTimestampMs = null
-        activeDurationMs = activeDurationOf(points)
+        activeDurationMs = TrackGaps.activeDurationOf(points)
         status = RunStatus.PAUSED_MANUAL
         filter.reset()
         paceSmoother.reset()
@@ -144,17 +144,42 @@ class MetricsAccumulator(
 
             is FilterResult.Accepted -> {
                 val previousTimestampMs = lastTimestampMs
-                previousTimestampMs?.let { previous ->
-                    val delta = fix.epochMs - previous
-                    // Guard against a clock jump or a long gap being counted as running.
-                    if (delta in 1..30_000) activeDurationMs += delta
-                }
+                val gapMs = previousTimestampMs?.let { fix.epochMs - it } ?: 0L
+                val straightLineM = lastPoint
+                    ?.let { GeoDistance.between(it.lat, it.lon, fix.lat, fix.lon) }
+                    ?: 0.0
+                val gap = if (previousTimestampMs == null) GapKind.Continuous
+                else TrackGaps.classify(gapMs, straightLineM)
+
                 lastTimestampMs = fix.epochMs
 
-                val stepM = smoothedStep(fix) ?: result.distanceDeltaM
+                val stepM = when (gap) {
+                    GapKind.Continuous -> {
+                        // Guard against a clock jump being counted as running.
+                        if (gapMs > 0) activeDurationMs += gapMs
+                        val step = smoothedStep(fix) ?: result.distanceDeltaM
+                        sampleSpeed(fix, step, previousTimestampMs)
+                        step
+                    }
+
+                    // The signal came back somewhere the runner could have run to. The
+                    // clock ran through the hole because the runner did, and the straight
+                    // line between the two fixes is the only route the data supports.
+                    GapKind.Inferred -> {
+                        activeDurationMs += gapMs
+                        inferAcross(fix, straightLineM, gapMs)
+                    }
+
+                    // Too long, too far or too slow to be running. Nothing crosses it:
+                    // not the clock, not the distance, and not the drawn trace.
+                    GapKind.Broken -> {
+                        breakTrack()
+                        smoothedStep(fix)
+                        0.0
+                    }
+                }
                 distance += stepM
                 elevation.onFix(fix.altitudeM, fix.verticalAccuracyM)
-                sampleSpeed(fix, stepM, previousTimestampMs)
                 quality = qualityFor(fix.accuracyM)
 
                 val point = TrackPoint(
@@ -173,6 +198,37 @@ class MetricsAccumulator(
                 FixOutcome.Recorded(point, metrics)
             }
         }
+    }
+
+    /**
+     * Picks the run up on the far side of a hole in the fixes.
+     *
+     * The position filter is started again rather than predicted across: a velocity
+     * carried over minutes is a fiction, and the first fix back is the best position
+     * there is. The pace is the one the gap implies — distance over the time it took —
+     * because the chip's instantaneous reading at the moment it regained the sky says
+     * nothing about the two minutes before it.
+     */
+    private fun inferAcross(fix: RawFix, straightLineM: Double, gapMs: Long): Double {
+        smoother?.reset()
+        lastSmoothed = smoother?.onFix(fix.epochMs, fix.lat, fix.lon, fix.accuracyM)
+        paceSmoother.reset()
+        if (gapMs > 0) paceSmoother.onSample(straightLineM / (gapMs / 1000.0))
+        return straightLineM
+    }
+
+    /**
+     * Starts a new segment where the fixes came back.
+     *
+     * The same thing a pause does, and for the same reason: nothing may be drawn or
+     * counted across a hole the app cannot account for. The run itself keeps going —
+     * losing the signal is not the runner stopping.
+     */
+    private fun breakTrack() {
+        segment++
+        paceSmoother.reset()
+        smoother?.reset()
+        lastSmoothed = null
     }
 
     /**
@@ -223,15 +279,6 @@ class MetricsAccumulator(
         val previous = previousTimestampMs ?: return
         val dt = (fix.epochMs - previous) / 1000.0
         if (dt > 0) paceSmoother.onSample(distanceDeltaM / dt)
-    }
-
-    private fun activeDurationOf(points: List<TrackPoint>): Long {
-        var total = 0L
-        for (i in 1 until points.size) {
-            val delta = points[i].timestampMs - points[i - 1].timestampMs
-            if (points[i].segment == points[i - 1].segment && delta in 1..30_000) total += delta
-        }
-        return total
     }
 
     private fun qualityFor(accuracyM: Float?): GpsQuality = when {

@@ -4,6 +4,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.net.Uri
 import io.snailrun.data.db.SnailDatabase
+import io.snailrun.data.prefs.CoachSettings
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -46,6 +47,13 @@ class DatabaseBackup(
     private val context: Context,
     private val database: () -> SnailDatabase,
     private val isRecording: () -> Boolean,
+    /**
+     * The coach's state, which is not in the database but is about the runner just as
+     * much as the runs are. See [CoachBackup]. Defaulted away so the database half of
+     * this class can still be exercised on its own.
+     */
+    private val readCoach: suspend () -> CoachSettings = { CoachSettings() },
+    private val writeCoach: suspend (CoachSettings) -> Unit = {},
 ) {
 
     suspend fun backupTo(uri: Uri): BackupResult = withContext(Dispatchers.IO) {
@@ -54,6 +62,10 @@ class DatabaseBackup(
             runCatching {
                 snapshot(staging)
                 stamp(staging)
+                // After the snapshot, because the snapshot is a copy of the database and
+                // this is the one thing in the file that never lived there.
+                val coach = readCoach()
+                openReadWrite(staging).use { CoachBackup.write(it, coach) }
                 val runCount = readRunCount(staging)
                 val size = staging.length()
 
@@ -105,6 +117,12 @@ class DatabaseBackup(
                 Inspection.Usable -> Unit
             }
 
+            // Read before anything is replaced, like everything else that can fail
+            // safely. Null means the file predates the coach being backed up at all, and
+            // the coach on this phone is then left exactly as it is.
+            val coach = runCatching { openReadOnly(candidate).use { CoachBackup.read(it) } }
+                .getOrNull()
+
             // A copy of what is about to be overwritten, taken while the database is still
             // open and consistent, so a failure halfway leaves the user with their old runs
             // rather than with neither set.
@@ -122,7 +140,13 @@ class DatabaseBackup(
                 clearSidecars(live)
                 openAndCount()
             }.fold(
-                onSuccess = { RestoreResult.Restored(it) },
+                onSuccess = { runCount ->
+                    // After the runs, and never instead of them: a coach put back beside
+                    // a database that failed to open would plan against a history that
+                    // is not there.
+                    coach?.let { runCatching { writeCoach(it) } }
+                    RestoreResult.Restored(runCount)
+                },
                 onFailure = { broken ->
                     runCatching {
                         rollback.copyTo(live, overwrite = true)

@@ -10,7 +10,8 @@ network socket. Nothing it records can leave the device.
 
 - Records a run from the GPS chip: distance, moving time, pace, approximate elevation.
 - Corrects the positions as it goes: jitter smoothed, reflections pulled back onto the
-  track, dropouts ridden out.
+  track, dropouts ridden out. Losing the signal never stops the recording: the clock
+  keeps running and the stretch you ran through it is inferred when the fixes come back.
 - Optionally stops the clock when you stop, and starts it again when you move off,
   saying so aloud both times.
 - Speaks your pace aloud at every kilometre, using an on-device speech engine.
@@ -24,8 +25,10 @@ network socket. Nothing it records can leave the device.
 - Suggests the next four weeks of training from the runs already recorded: named
   sessions, paces derived from your own best efforts, and volume that cannot ramp faster
   than is safe. Step between weeks with the arrows, hold a day to drag it elsewhere.
-  Optionally counts back from a race date.
-- Backs every run up to one file you choose, and puts one back.
+  Optionally counts back from a race date. On a fresh install it asks four questions
+  about the month before it, so the first week fits you rather than a beginner.
+- Backs every run up to one file you choose — and your race, your rearranged weeks and
+  your starting point with them — and puts one back.
 - Survives being killed mid-run: the track is in the database, and the app offers to
   finish or continue it on next launch.
 
@@ -82,6 +85,14 @@ it away.
 The app then restarts itself. The database instance is captured by the recorder, the
 exporter and three view models; relaunching into a clean process is a far smaller thing
 than making all of that swappable for an operation run perhaps once a year.
+
+**The coach is in the backup**, though it does not live in the database: the race you
+are training for, the weeks you rearranged around your job, and what you told the app
+you had been running before you installed it. Those are statements about the runner,
+exactly like the runs beside them, and a new phone that lost them would spend its first
+month planning as though you had never run. They ride in a small key-value table written
+into the backup file after the database is copied into it — outside the Room schema, so
+it costs no migration, and a build that predates it simply does not look for it.
 
 **Not in the backup:** settings, and the map file you picked. Android ties the GPX export folder
 grant and the picked map file to the installation, so neither would survive a reinstall
@@ -268,6 +279,50 @@ independent filter per axis. It does three things a raw GPS track needs:
   as an outlier. Nothing is invented across the hole: a straight line is the only
   reconstruction the data supports.
 
+### Improving it later
+
+Runs carry the filter version they were derived with. Raise `TrackSmoother.VERSION`, and
+on next launch every run recorded under an older version is re-derived from its raw
+positions: cumulative distances, totals, splits and records all rewritten. The latitudes
+and longitudes are never touched — they are the record of what the chip said.
+
+## Losing the signal
+
+A tunnel, a station underpass, a street of tall buildings. The app used to treat that as
+the runner stopping — no fix meant no clock — so the minutes spent under it vanished from
+the moving time while the distance across it was still credited, which came out as a pace
+nobody ran. Now the recording simply continues, and the hole is accounted for when the
+fixes come back.
+
+Two things happen, both in `domain/metrics`:
+
+- **A degraded chip is still a chip.** A fix has to beat 25 m of accuracy to be believed,
+  and a receiver losing the sky reports worse and worse accuracy before it goes quiet —
+  so at that bar a run under a canopy records nothing at all. Once the fixes have already
+  stopped for fifteen seconds the bar drops to 50 m. A poor position is still a position,
+  the Kalman filter weighs it by exactly the accuracy it carries, and taking it beats
+  inferring the whole stretch. The bar is never relaxed among good fixes, where a 50 m fix
+  is a reflection, and never for the first fix of a segment, which anchors everything
+  measured from it.
+- **The gap itself is classified**, not ignored. `TrackGaps` looks at how long the fixes
+  were away and how far apart the two ends are, and answers with one of three things:
+  - under thirty seconds, nothing special: the fix stream breathing.
+  - otherwise, if the speed the gap implies is between a brisk walk and 2:46/km, and the
+    hole is under twenty minutes, it is **inferred**. The clock runs through it because
+    the runner did, the straight line between the two fixes is counted as distance, and
+    the pace the stretch gets is the one it implies rather than whatever the chip said at
+    the moment it regained the sky.
+  - anything else is **broken**: too slow means they were standing about with the phone
+    on a table, too fast means they took the metro, too long means it was not a lost
+    signal but a lost afternoon. Nothing crosses it — not the clock, not the distance, and
+    not the drawn trace, which starts a new segment there exactly as a pause does.
+
+The same rules run live and on every later re-derivation, which is what keeps the figure
+on the record screen and the figure on the run's own screen the same figure. And because
+a gap is a property of two stored fixes, none of it is written down: the run's own screen
+says how long the signal was lost and how far was inferred by working it out again from
+the track, so runs recorded before any of this existed are read under it too.
+
 Two details worth knowing before touching it:
 
 - **The velocity is set from the first two fixes, not converged towards.** Left to
@@ -278,13 +333,6 @@ Two details worth knowing before touching it:
   speed gate, read from the chip's Doppler where that is trustworthy — standing at a
   light, the filter is deliberately stiff and coasts ten metres before it believes you
   have stopped, while Doppler collapses to zero at once.
-
-### Improving it later
-
-Runs carry the filter version they were derived with. Raise `TrackSmoother.VERSION`, and
-on next launch every run recorded under an older version is re-derived from its raw
-positions: cumulative distances, totals, splits and records all rewritten. The latitudes
-and longitudes are never touched — they are the record of what the chip said.
 
 ## Coaching
 
@@ -348,6 +396,24 @@ The rules that exist so a suggestion cannot injure someone, all of them assertio
   their life, and the coach works inside it.
 - Three rising weeks produce a cutback; a fortnight off produces a return-to-running week
   at sixty per cent; under three runs in four weeks produces a base week and says so.
+
+**A fresh install asks where you are starting.** The coach reads history and a new phone
+has none, so the first four weeks it plans are the ones it knows least about: a
+50 km-a-week runner would be handed three easy jogs and no way out but to spend a month
+proving what they already knew. So the tab asks four questions — days a week, a typical
+week's distance, the longest run of the last month, and a recent race if there was one —
+and turns the answers into runs on the days of the four weeks before you answered that
+you have not since filled with a real one.
+
+Synthetic runs rather than a special case inside the planner, so every rule already
+written applies to them unchanged, and there is no second code path to disagree with the
+first. The race is offered to the fitness estimate on the same terms as the efforts the
+app found for itself: the best one wins. And because the answers describe a fixed four
+weeks in the past, they age out of the coach's windows on their own, day by day, exactly
+as real runs do — a month later none of it is left, which is the point at which the app
+knows more about you than you just told it. Nothing has to be cleared or expired, and
+somebody who answers and then stops running for a fortnight gets the same
+return-to-running week as anybody else.
 
 **A race is optional.** Settings → Coach takes a distance and a date, and the plan then
 counts back from it: build past four weeks out, sharpen inside four, taper inside two.

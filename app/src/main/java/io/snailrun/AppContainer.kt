@@ -20,6 +20,7 @@ import io.snailrun.domain.voice.PaceSpeechFormatter
 import io.snailrun.tracking.RecordingState
 import io.snailrun.tracking.RunRecorder
 import java.time.Clock
+import kotlinx.coroutines.flow.first
 
 /**
  * Hand-rolled dependency graph. One developer and one graph, so Hilt's annotation
@@ -82,6 +83,8 @@ class AppContainer(private val context: Context) {
             context = context,
             database = { database },
             isRecording = { runRecorder.state.value is RecordingState.Active },
+            readCoach = { settings.settings.first().coach },
+            writeCoach = { settings.restoreCoach(it) },
         )
     }
 

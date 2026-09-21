@@ -24,6 +24,36 @@ class FixFilterTest {
     }
 
     @Test
+    fun `a poor fix is taken once the good ones have stopped`() {
+        val filter = FixFilter()
+        filter.apply(Traces.fix(0.0, Traces.START_MS))
+
+        // Among good fixes, 40 m is a reflection and is refused.
+        assertEquals(
+            FilterResult.Rejected(RejectReason.INACCURATE),
+            filter.apply(Traces.fix(3.0, Traces.START_MS + 1_000, accuracyM = 40f)),
+        )
+
+        // Twenty seconds later nothing else has arrived, and a poor position beats
+        // having to infer the whole stretch as a straight line.
+        assertTrue(
+            filter.apply(Traces.fix(60.0, Traces.START_MS + 21_000, accuracyM = 40f))
+                is FilterResult.Accepted
+        )
+    }
+
+    @Test
+    fun `the first fix of a segment is never taken on a poor accuracy`() {
+        // It anchors the projection and everything measured from it, so it is the one
+        // fix worth waiting for.
+        val filter = FixFilter()
+        assertEquals(
+            FilterResult.Rejected(RejectReason.INACCURATE),
+            filter.apply(Traces.fix(0.0, Traces.START_MS, accuracyM = 40f)),
+        )
+    }
+
+    @Test
     fun `a stale fix is rejected`() {
         val stale = Traces.fix(0.0, Traces.START_MS).copy(ageMs = 9_000)
         assertEquals(FilterResult.Rejected(RejectReason.STALE), FixFilter().apply(stale))

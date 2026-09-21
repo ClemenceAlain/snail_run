@@ -1,5 +1,6 @@
 package io.snailrun.domain.coach
 
+import io.snailrun.domain.metrics.TrackGaps
 import io.snailrun.domain.model.TrackPoint
 
 /** One segment as prescribed, beside what was actually run in it. */
@@ -60,9 +61,14 @@ object WorkoutReview {
         points.forEach { point ->
             previous?.let { before ->
                 val delta = point.timestampMs - before.timestampMs
-                // The same gate the accumulator uses: within a segment of the track, and
-                // no more than the half-minute that marks a dropout rather than running.
-                if (point.segment == before.segment && delta in 1..30_000) activeMs += delta
+                // The same gate the accumulator uses: within a segment of the track,
+                // and across a hole in the fixes only where the runner ran through it.
+                if (point.segment == before.segment) {
+                    activeMs += TrackGaps.countable(
+                        gapMs = delta,
+                        straightLineM = point.cumulativeDistanceM - before.cumulativeDistanceM,
+                    )
+                }
             }
             previous = point
             val meters = point.cumulativeDistanceM

@@ -7,9 +7,11 @@ import androidx.room.testing.MigrationTestHelper
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import io.snailrun.data.db.BestEffortEntity
+import io.snailrun.domain.coach.CoachBaseline
 import io.snailrun.data.db.RunEntity
 import io.snailrun.data.db.SnailDatabase
 import io.snailrun.data.db.SplitEntity
+import io.snailrun.data.prefs.CoachSettings
 import io.snailrun.data.db.TrackPointEntity
 import java.io.File
 import kotlinx.coroutines.runBlocking
@@ -45,6 +47,9 @@ class DatabaseBackupTest {
     private var recording = false
     private lateinit var backup: DatabaseBackup
 
+    /** Stands in for the preference store the coach actually lives in. */
+    private var coach = CoachSettings()
+
     private val scratch = mutableListOf<File>()
 
     @Before
@@ -55,6 +60,8 @@ class DatabaseBackupTest {
             context = context,
             database = { live },
             isRecording = { recording },
+            readCoach = { coach },
+            writeCoach = { coach = it },
         )
     }
 
@@ -90,6 +97,60 @@ class DatabaseBackupTest {
         assertEquals(1, dao.effortsFor(runId).size)
         assertEquals(5, countSplits(runId))
     }
+
+    @Test
+    fun `the coach comes back with the runs`() = runBlocking {
+        insertFullRun(distance = 5000.0, title = "Canal loop")
+        coach = CoachSettings(
+            targetDistanceMeters = 21_097,
+            targetDateEpochDay = 20_500,
+            dayOrders = mapOf(20_353L to listOf(3, 0, 1, 2, 4, 5, 6)),
+            nudgeOffPace = true,
+            baseline = CoachBaseline(
+                runsPerWeek = 4,
+                weeklyMeters = 40_000.0,
+                longestRunMeters = 15_000.0,
+                raceDistanceMeters = 10_000,
+                raceDurationMs = 45 * 60_000L,
+                raceDateEpochDay = 20_300,
+                recordedOnEpochDay = 20_350,
+            ),
+            baselineAsked = true,
+        )
+
+        val (uri, _) = backUpToFile()
+        // A new phone: the runs are gone and so is everything the coach knew.
+        wipeLiveDatabase()
+        coach = CoachSettings()
+
+        assertEquals(RestoreResult.Restored(1), backup.restoreFrom(uri))
+
+        assertEquals(21_097, coach.targetDistanceMeters)
+        assertEquals(20_500L, coach.targetDateEpochDay)
+        assertEquals(listOf(3, 0, 1, 2, 4, 5, 6), coach.dayOrders[20_353L])
+        assertTrue(coach.nudgeOffPace)
+        assertTrue(coach.baselineAsked)
+        assertEquals(4, coach.baseline?.runsPerWeek)
+        assertEquals(40_000.0, coach.baseline?.weeklyMeters ?: 0.0, 0.0)
+        assertEquals(10_000, coach.baseline?.raceDistanceMeters)
+        assertEquals(45 * 60_000L, coach.baseline?.raceDurationMs)
+        assertEquals(20_350L, coach.baseline?.recordedOnEpochDay)
+    }
+
+    @Test
+    fun `a backup from before the coach was carried leaves this phone's coach alone`() =
+        runBlocking {
+            insertFullRun(distance = 5000.0, title = "Canal loop")
+            val (uri, _) = backUpToFile()
+            // The table this build writes, removed: the shape of every older backup.
+            SQLiteDatabase.openDatabase(fileBehind(uri).path, null, SQLiteDatabase.OPEN_READWRITE)
+                .use { it.execSQL("DROP TABLE coach_prefs") }
+
+            coach = CoachSettings(targetDistanceMeters = 5_000, targetDateEpochDay = 20_600)
+            assertEquals(RestoreResult.Restored(1), backup.restoreFrom(uri))
+
+            assertEquals(5_000, coach.targetDistanceMeters)
+        }
 
     /**
      * The regression that justifies `VACUUM INTO`. Room is in WAL mode, so a freshly

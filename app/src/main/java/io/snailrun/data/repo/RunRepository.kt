@@ -8,6 +8,7 @@ import io.snailrun.domain.coach.WorkoutType
 import io.snailrun.domain.analysis.SplitCalculator
 import io.snailrun.domain.geo.TrackSmoother
 import io.snailrun.domain.metrics.RunMetrics
+import io.snailrun.domain.metrics.TrackGaps
 import io.snailrun.domain.model.TrackPoint
 import java.time.Clock
 import java.time.Instant
@@ -212,7 +213,7 @@ class RunRepository(
 
         val smoothed = TrackSmoother.smooth(raw)
         val distance = smoothed.last().cumulativeDistanceM
-        val movingTimeMs = activeDurationOf(smoothed)
+        val movingTimeMs = TrackGaps.activeDurationOf(smoothed)
         val bounds = smoothed.fold(Bounds()) { acc, point -> acc.extend(point) }
 
         // Only the derived column is written back; the raw latitude and longitude stay
@@ -237,16 +238,6 @@ class RunRepository(
             splits = SplitCalculator.compute(smoothed).map { it.toEntity(runId) },
             efforts = BestEffortFinder.findAll(smoothed).map { it.toEntity(runId) },
         )
-    }
-
-    /** Time spent running: within a segment, and across gaps short enough to be strides. */
-    private fun activeDurationOf(points: List<TrackPoint>): Long {
-        var total = 0L
-        for (i in 1 until points.size) {
-            val delta = points[i].timestampMs - points[i - 1].timestampMs
-            if (points[i].segment == points[i - 1].segment && delta in 1..30_000) total += delta
-        }
-        return total
     }
 
     suspend fun markExported(runId: Long, uri: String) {

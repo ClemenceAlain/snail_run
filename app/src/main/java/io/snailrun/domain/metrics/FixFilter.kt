@@ -6,6 +6,22 @@ import io.snailrun.domain.model.RawFix
 data class FilterConfig(
     /** Fixes less precise than this are noise, not position. 20-30 m is the running band. */
     val maxAccuracyM: Float = 25f,
+    /**
+     * The bar once the fixes have already stopped, and how long they have to have
+     * stopped for it to drop.
+     *
+     * A receiver losing the sky does not go silent: it reports worse and worse accuracy
+     * first, and at the ordinary bar every one of those is thrown away — so a run under
+     * a canopy or between tall buildings records nothing at all, and the app then has to
+     * infer the whole stretch as a straight line. A 50 m fix is a poor position and it
+     * is still a position, and the smoother weighs it by exactly the accuracy it
+     * carries. Taking it beats guessing.
+     *
+     * It applies only after a dropout, never at the ordinary rate: a 50 m fix arriving
+     * every second among good ones is a reflection, and that is what the bar is for.
+     */
+    val dropoutAccuracyM: Float = 50f,
+    val dropoutAfterMs: Long = 15_000,
     /** A fix that sat in a queue or came from cache is not where you are now. */
     val maxAgeMs: Long = 5_000,
     /** Duplicate deliveries arrive within a few milliseconds of each other. */
@@ -66,9 +82,22 @@ class FixFilter(private val config: FilterConfig = FilterConfig()) {
         consecutiveTeleports = 0
     }
 
+    /**
+     * The accuracy a fix has to beat to be believed.
+     *
+     * Relaxed only while the track already has a hole in it, and never for the first fix
+     * of a segment: that one anchors the projection and everything measured from it, so
+     * it is the one fix worth waiting for.
+     */
+    private fun accuracyBarFor(fix: RawFix): Float {
+        val last = lastAccepted ?: return config.maxAccuracyM
+        val since = fix.epochMs - last.epochMs
+        return if (since >= config.dropoutAfterMs) config.dropoutAccuracyM else config.maxAccuracyM
+    }
+
     fun apply(fix: RawFix): FilterResult {
         val accuracy = fix.accuracyM ?: return FilterResult.Rejected(RejectReason.NO_ACCURACY)
-        if (accuracy > config.maxAccuracyM) return FilterResult.Rejected(RejectReason.INACCURATE)
+        if (accuracy > accuracyBarFor(fix)) return FilterResult.Rejected(RejectReason.INACCURATE)
         if (fix.ageMs > config.maxAgeMs) return FilterResult.Rejected(RejectReason.STALE)
         if (fix.isMock && !config.allowMock) return FilterResult.Rejected(RejectReason.MOCK)
 

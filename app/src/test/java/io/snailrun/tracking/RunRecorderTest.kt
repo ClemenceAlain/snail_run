@@ -312,6 +312,32 @@ class RunRecorderTest {
     }
 
     @Test
+    fun `a tunnel neither stops the clock nor pauses the run`() = runTest {
+        settings.setAutoPauseEnabled(true)
+        recorder.start()
+
+        // Two minutes running, three minutes with no fixes at all, two minutes more.
+        val fixes = Traces.runWithDropout(
+            beforeSeconds = 120,
+            dropoutSeconds = 180,
+            afterSeconds = 120,
+            speedMps = 3.0,
+        )
+        fixes.forEach { fix ->
+            clock.nowMs = fix.epochMs
+            recorder.onFix(fix)
+        }
+        val id = recorder.finish()!!
+
+        val run = repository.observeRun(id).first()!!
+        // Seven minutes of running: the four the chip saw and the three it did not.
+        assertEquals(418_000.0, run.movingTimeMs.toDouble(), 2_000.0)
+        assertEquals(418.0 * 3.0, run.distanceMeters, 418.0 * 3.0 * 0.05)
+        // And the tunnel is one stretch of one trace, not two runs stuck together.
+        assertEquals(1, repository.pointsFor(id).map { it.segment }.distinct().size)
+    }
+
+    @Test
     fun `the live state says auto-paused while the clock is stopped`() = runTest {
         // What the record screen reads. The timing assertions above would all pass even
         // if the status never reached the UI, which is the one thing a runner sees.

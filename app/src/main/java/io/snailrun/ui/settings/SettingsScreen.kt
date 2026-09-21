@@ -237,6 +237,9 @@ fun SettingsScreen(
                 "The Coach tab plans four weeks from the runs you have already done. It " +
                     "needs nothing set here — without a race it builds steadily, which is " +
                     "what most of a year looks like.",
+                "On a fresh install it has no runs to read, so the tab asks four questions " +
+                    "about the month before it. The answers stand in for that month and " +
+                    "age out of it day by day.",
                 "Load a session on the record screen and the app counts you through it, " +
                     "out loud and with a buzz at every change of step.",
                 "The off-pace warning reads smoothed GPS pace, which wanders under trees " +
@@ -358,7 +361,10 @@ fun SettingsScreen(
                     "reset or a lost phone takes them with it.",
                 "A backup is one file holding every run, every track and every record. Put " +
                     "it somewhere off the phone and it is the only copy that survives.",
-                "Settings are not in it, and neither is the map file: Android ties the GPX " +
+                "Your race, your rearranged weeks and what you told the coach about the " +
+                    "runs it never saw are in it too. They are about you, not about this " +
+                    "phone.",
+                "Settings are not, and neither is the map file: Android ties the GPX " +
                     "folder and the map file to this installation, so neither could be " +
                     "restored anyway.",
             ),
