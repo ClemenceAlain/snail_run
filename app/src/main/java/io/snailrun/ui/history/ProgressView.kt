@@ -24,6 +24,7 @@ import io.snailrun.domain.analysis.ProgressBucket
 import io.snailrun.domain.analysis.ProgressPeriod
 import io.snailrun.ui.components.MetricRow
 import io.snailrun.ui.components.SnailCard
+import io.snailrun.ui.format.UiLocale
 import io.snailrun.ui.format.RunFormat
 import io.snailrun.ui.theme.Spacing
 import java.time.format.DateTimeFormatter
@@ -32,8 +33,8 @@ import kotlin.math.max
 
 // Built per call: a formatter cached at class-init keeps the locale the app
 // started with, which is wrong after the user changes the system language.
-private fun weekLabel() = DateTimeFormatter.ofPattern("d MMM", Locale.getDefault())
-private fun monthLabel() = DateTimeFormatter.ofPattern("LLL", Locale.getDefault())
+private fun weekLabel() = DateTimeFormatter.ofPattern("d MMM", UiLocale)
+private fun monthLabel() = DateTimeFormatter.ofPattern("LLL", UiLocale)
 
 /**
  * How much running, over time.

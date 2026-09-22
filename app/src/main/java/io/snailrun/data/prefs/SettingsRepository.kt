@@ -19,9 +19,6 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 
 data class Settings(
     val voice: VoiceConfig = VoiceConfig(enabled = false),
-    /** Tree URI of the folder every finished run is written to, if one was chosen. */
-    val exportFolderUri: String? = null,
-    val autoExportEnabled: Boolean = true,
     val keepScreenOn: Boolean = true,
     /** Stops the clock when the runner stops, and starts it again when they move off. */
     val autoPauseEnabled: Boolean = false,
@@ -195,12 +192,6 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setSpeechRate(rate: Float) = edit { it[SPEECH_RATE] = rate }
 
-    suspend fun setExportFolderUri(uri: String?) = edit {
-        if (uri == null) it.remove(EXPORT_FOLDER_URI) else it[EXPORT_FOLDER_URI] = uri
-    }
-
-    suspend fun setAutoExportEnabled(value: Boolean) = edit { it[AUTO_EXPORT] = value }
-
     suspend fun setKeepScreenOn(value: Boolean) = edit { it[KEEP_SCREEN_ON] = value }
 
     suspend fun setAutoPauseEnabled(value: Boolean) = edit { it[AUTO_PAUSE] = value }
@@ -297,8 +288,6 @@ class SettingsRepository(private val context: Context) {
             speakAveragePace = this[SPEAK_AVERAGE_PACE] ?: true,
             speakLastSplitPace = this[SPEAK_LAST_SPLIT] ?: false,
         ),
-        exportFolderUri = this[EXPORT_FOLDER_URI],
-        autoExportEnabled = this[AUTO_EXPORT] ?: true,
         keepScreenOn = this[KEEP_SCREEN_ON] ?: true,
         autoPauseEnabled = this[AUTO_PAUSE] ?: false,
         speechRate = this[SPEECH_RATE] ?: 1.0f,
@@ -325,8 +314,6 @@ class SettingsRepository(private val context: Context) {
         val SPEAK_AVERAGE_PACE = booleanPreferencesKey("speak_average_pace")
         val SPEAK_LAST_SPLIT = booleanPreferencesKey("speak_last_split")
         val SPEECH_RATE = floatPreferencesKey("speech_rate")
-        val EXPORT_FOLDER_URI = stringPreferencesKey("export_folder_uri")
-        val AUTO_EXPORT = booleanPreferencesKey("auto_export")
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
         val AUTO_PAUSE = booleanPreferencesKey("auto_pause")
         val BASEMAP_URI = stringPreferencesKey("basemap_uri")

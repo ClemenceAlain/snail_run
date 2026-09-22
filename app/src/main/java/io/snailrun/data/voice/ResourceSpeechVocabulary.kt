@@ -74,6 +74,15 @@ class ResourceSpeechVocabulary(context: Context) : SpeechVocabulary {
     override fun repOf(index: Int, count: Int): String =
         context.getString(R.string.speech_rep_of, index, count)
 
+    override fun setOf(index: Int, count: Int): String =
+        context.getString(R.string.speech_set_of, index, count)
+
+    override fun timesLabel(count: Int): String =
+        context.resources.getQuantityString(R.plurals.speech_times, count, count)
+
+    override val perSideLabel: String get() = context.getString(R.string.speech_per_side)
+    override val restLabel: String get() = context.getString(R.string.speech_rest)
+
     override fun countdown(seconds: Int): String =
         context.getString(R.string.speech_countdown, seconds)
 

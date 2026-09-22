@@ -26,6 +26,10 @@ private object EnglishVocabulary : SpeechVocabulary {
         RunNotice.AutoResumed -> "running again"
     }
     override fun repOf(index: Int, count: Int) = "rep $index of $count"
+    override fun setOf(index: Int, count: Int) = "set $index of $count"
+    override fun timesLabel(count: Int) = if (count == 1) "1 time" else "$count times"
+    override val perSideLabel = "each side"
+    override val restLabel = "rest"
     override fun countdown(seconds: Int) = "$seconds"
     override val easeDown = "ease down"
     override val pickItUp = "pick it up"

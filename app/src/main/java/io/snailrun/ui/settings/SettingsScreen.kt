@@ -33,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import io.snailrun.data.prefs.Settings
+import io.snailrun.ui.format.UiLocale
 import io.snailrun.data.voice.TtsState
 import io.snailrun.domain.coach.Races
 import io.snailrun.ui.components.HelpButton
@@ -54,8 +55,6 @@ data class SettingsActions(
     val onSpeechRate: (Float) -> Unit,
     val onTestVoice: () -> Unit,
     val onOpenTtsSettings: () -> Unit,
-    val onChooseExportFolder: () -> Unit,
-    val onAutoExport: (Boolean) -> Unit,
     val onKeepScreenOn: (Boolean) -> Unit,
     val onAutoPause: (Boolean) -> Unit,
     val onChooseBasemap: () -> Unit,
@@ -147,33 +146,6 @@ fun SettingsScreen(
                     )
                     TextButton(onClick = actions.onTestVoice) { Text("Test voice") }
                 }
-            }
-        }
-
-        Spacer(Modifier.height(Spacing.section))
-        SectionTitle(
-            "GPX files",
-            help = listOf(
-                "A copy for other programs, written to a folder you choose once. Nothing " +
-                    "reads it back — a GPX export is not a backup.",
-            ),
-        )
-
-        SnailCard(modifier = Modifier.fillMaxWidth()) {
-            SwitchRow(
-                label = "Save every run as GPX",
-                checked = settings.autoExportEnabled,
-                onCheckedChange = actions.onAutoExport,
-            )
-            Spacer(Modifier.height(Spacing.s))
-            Text(
-                text = settings.exportFolderUri?.let { "Saving to the folder you chose." }
-                    ?: "Choose a folder and every finished run is written there automatically.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            TextButton(onClick = actions.onChooseExportFolder) {
-                Text(if (settings.exportFolderUri == null) "Choose folder" else "Change folder")
             }
         }
 
@@ -452,7 +424,7 @@ private fun RaceDatePicker(initial: Long?, onDismiss: () -> Unit, onPick: (Long)
 
 // Built per call: a formatter cached at class-init keeps the locale the app
 // started with, which is wrong after the user changes the system language.
-private fun dateFormat() = DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", Locale.getDefault())
+private fun dateFormat() = DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", UiLocale)
 
 private fun raceLabel(meters: Int) = when (meters) {
     21_097 -> "Half"

@@ -38,6 +38,7 @@ import io.snailrun.domain.coach.SegmentResult
 import io.snailrun.domain.metrics.InferredLeg
 import io.snailrun.domain.coach.WorkoutType
 import io.snailrun.ui.components.SnailCard
+import io.snailrun.ui.format.UiLocale
 import io.snailrun.ui.format.RunFormat
 import io.snailrun.ui.theme.SnailType
 import io.snailrun.ui.theme.Spacing
@@ -49,7 +50,7 @@ import java.util.Locale
 
 // Built per call: a formatter cached at class-init keeps the locale the app
 // started with, which is wrong after the user changes the system language.
-private fun headerformat() = DateTimeFormatter.ofPattern("EEE d MMM yyyy · HH:mm", Locale.getDefault())
+private fun headerformat() = DateTimeFormatter.ofPattern("EEE d MMM yyyy · HH:mm", UiLocale)
 
 data class RunDetailUiState(
     val run: RunEntity? = null,

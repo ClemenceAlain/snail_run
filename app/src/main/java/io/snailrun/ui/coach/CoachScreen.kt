@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Icon
@@ -36,11 +35,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import io.snailrun.domain.coach.CoachBaseline
-import io.snailrun.domain.coach.Confidence
 import io.snailrun.domain.coach.PlannedDay
 import io.snailrun.domain.coach.Races
 import io.snailrun.domain.coach.WeekPlan
@@ -48,9 +45,13 @@ import io.snailrun.domain.coach.Workout
 import io.snailrun.domain.coach.WorkoutStep
 import io.snailrun.domain.coach.WorkoutType
 import io.snailrun.R
+import io.snailrun.ui.components.Badge
+import io.snailrun.ui.components.BadgeTone
 import io.snailrun.ui.components.HelpButton
+import io.snailrun.ui.components.badgeTone
 import io.snailrun.ui.components.SessionSheet
 import io.snailrun.ui.components.SnailCard
+import io.snailrun.ui.format.UiLocale
 import io.snailrun.ui.format.RunFormat
 import io.snailrun.ui.format.SessionFormat
 import io.snailrun.ui.theme.SnailType
@@ -59,12 +60,11 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
-import kotlin.math.roundToInt
 
 // Built per call: a formatter cached at class-init keeps the locale the app
 // started with, which is wrong after the user changes the system language.
-private fun dayformat() = DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault())
-private fun rangeformat() = DateTimeFormatter.ofPattern("d MMM", Locale.getDefault())
+private fun dayformat() = DateTimeFormatter.ofPattern("EEE d MMM", UiLocale)
+private fun rangeformat() = DateTimeFormatter.ofPattern("d MMM", UiLocale)
 
 /**
  * A no-break space between a number and its unit.
@@ -86,15 +86,8 @@ private val CoachHelp = listOf(
     "Two strength sessions a week sit beside the running rather than instead of it. " +
         "They carry no distance, so they never cost you a kilometre, and they are kept " +
         "off the day before anything hard.",
-)
-
-private val PacesHelp = listOf(
-    "Paces come from the fastest stretches inside your own runs, put through Daniels " +
-        "and Gilbert's equations. Nothing is guessed and nothing is looked up.",
-    "Only efforts of 5 km and longer are trusted. A fast kilometre inside an easy run " +
-        "is usually a surge, and read as a time trial it would make every pace too fast.",
-    "So until there is a recent long effort, the coach writes easy and threshold work " +
-        "and refuses to price an interval session at all.",
+    "The paces these sessions are written in live under Runs → Records, where the rest " +
+        "of what you are currently capable of is.",
 )
 
 @Composable
@@ -105,6 +98,7 @@ fun CoachScreen(
     onResetWeek: (LocalDate) -> Unit,
     onShowWeek: (Int) -> Unit,
     onRunSession: (Workout) -> Unit,
+    onStartStrength: (Workout) -> Unit,
     onEditBaseline: (Boolean) -> Unit,
     onSaveBaseline: (CoachBaseline?) -> Unit,
     today: LocalDate,
@@ -128,13 +122,18 @@ fun CoachScreen(
             // A rest day with strength on it has the strength as its only content, so it
             // is promoted rather than shown under an empty "Rest".
             strength = day.strength.takeIf { day.workout.type != WorkoutType.Rest },
-            action = if (day.workout.type != WorkoutType.Rest) {
-                "Run this" to {
+            // A rest day with strength on it has only one thing to offer, so the
+            // button offers that rather than nothing.
+            action = when {
+                day.workout.type != WorkoutType.Rest -> "Run this" to {
                     onExpand(day.date)
                     onRunSession(day.workout)
                 }
-            } else {
-                null
+                day.strength != null -> "Start this" to {
+                    onExpand(day.date)
+                    onStartStrength(day.strength)
+                }
+                else -> null
             },
         )
     }
@@ -205,8 +204,6 @@ fun CoachScreen(
                 TextButton(onClick = { onResetWeek(plan.weekStart) }) { Text("Put the week back") }
             }
         }
-
-        item { FitnessCard(state) }
 
         // Below everything otherwise: a footnote about where the numbers above came
         // from — and the way back in for a runner who has history but still wants to
@@ -505,7 +502,7 @@ private fun DayRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = day.date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()),
+                text = day.date.dayOfWeek.getDisplayName(TextStyle.SHORT, UiLocale),
                 style = SnailType.metricCaption,
                 color = content,
                 maxLines = 1,
@@ -513,15 +510,19 @@ private fun DayRow(
                 modifier = Modifier.width(40.dp),
             )
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = day.workout.type.label,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = content,
-                    // A struck-through session is one already run. Nothing is stored to
-                    // say so: there is a run on that day, and that is the whole test.
-                    textDecoration = if (day.done) TextDecoration.LineThrough else null,
-                )
+                // The badges carry the day, and the name under them carries the detail.
+                // A week of pills reads in one pass without a word of it being read:
+                // filled green is a day that will hurt, pale green is one that will not.
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                    Badge(day.workout.type.label, day.workout.type.badgeTone)
+                    if (day.strength != null) Badge("Strength", BadgeTone.Other)
+                    // Replaces a strikethrough, which is easy to miss at a glance and
+                    // reads as an error the rest of the time. Nothing is stored to say
+                    // the day is done: there is a run on it, and that is the whole test.
+                    if (day.done) Badge("Done", BadgeTone.Quiet)
+                }
                 if (!rest) {
+                    Spacer(Modifier.height(Spacing.xs))
                     Text(
                         text = summaryOf(day),
                         style = MaterialTheme.typography.bodyMedium,
@@ -540,117 +541,22 @@ private fun DayRow(
             }
         }
 
-        // Second line, never a second card. The strength session sits beside the day's
-        // running rather than instead of it, and giving it a card of its own would make
-        // a seven-day week look like a nine-day one.
+        // One line, and only where the badge above is not already the whole story: a rest
+        // day's strength session is the day, so it gets named.
         day.strength?.let { strength ->
-            Spacer(Modifier.height(Spacing.s))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Spacer(Modifier.width(40.dp))
-                Icon(
-                    painter = painterResource(R.drawable.ic_snail),
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.tertiary,
-                    modifier = Modifier.size(14.dp),
-                )
-                Spacer(Modifier.width(Spacing.s))
-                Text(
-                    text = "${strength.name} · ${strength.steps.size} exercises" +
-                        (SessionFormat.estimate(strength)?.let { ", $it" } ?: ""),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.tertiary,
-                )
+            if (rest) {
+                Spacer(Modifier.height(Spacing.xs))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Spacer(Modifier.width(40.dp))
+                    Text(
+                        text = "${strength.name} · " +
+                            (SessionFormat.estimate(strength) ?: "${strength.steps.size} exercises"),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = content,
+                    )
+                }
             }
         }
-    }
-}
-
-@Composable
-private fun FitnessCard(state: CoachUiState) {
-    val fitness = state.fitness
-    SnailCard(modifier = Modifier.fillMaxWidth()) {
-        if (fitness == null) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "No fitness estimate yet",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f),
-                )
-                HelpButton(title = "Paces", body = PacesHelp)
-            }
-            Text(
-                text = "Easy running only until you have run a hard five kilometres.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            return@SnailCard
-        }
-
-        // "37 VDOT" is a number with no use at the point of reading it: it does not tell
-        // you how to run today, and a low one reads as a verdict. The paces underneath
-        // are what it was ever for. It stays one tap away for anyone who wants it.
-        var showVdot by remember { mutableStateOf(false) }
-        Row(
-            modifier = Modifier.clickable { showVdot = !showVdot },
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "Your paces",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.weight(1f),
-            )
-            HelpButton(title = "Paces", body = PacesHelp)
-        }
-        Text(
-            text = buildString {
-                append("From your ${distanceName(fitness.fromDistanceM)} on ")
-                append(dayformat().format(fitness.fromDate))
-                if (showVdot) append(" · ${fitness.vdot.roundToInt()} VDOT")
-            },
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        Spacer(Modifier.height(Spacing.m))
-        val paces = fitness.paces
-        PaceLine(
-            "Easy",
-            "${RunFormat.pace(paces.easySecPerKm.start)}–" +
-                RunFormat.pace(paces.easySecPerKm.endInclusive),
-        )
-        PaceLine("Marathon", RunFormat.pace(paces.marathonSecPerKm))
-        PaceLine("Threshold", RunFormat.pace(paces.thresholdSecPerKm))
-        if (fitness.confidence == Confidence.Solid) {
-            PaceLine("Interval", RunFormat.pace(paces.intervalSecPerKm))
-            PaceLine("Repetition", RunFormat.pace(paces.repetitionSecPerKm))
-        } else {
-            Spacer(Modifier.height(Spacing.s))
-            Text(
-                text = "Interval and repetition pace need a hard 5 km to price them from.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-@Composable
-private fun PaceLine(label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            text = "$value$NBSP/km",
-            style = SnailType.metricSmall,
-            maxLines = 1,
-            softWrap = false,
-        )
     }
 }
 

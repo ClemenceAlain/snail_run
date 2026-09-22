@@ -27,7 +27,10 @@ import androidx.compose.ui.unit.dp
 import io.snailrun.R
 import io.snailrun.data.db.RunEntity
 import io.snailrun.data.repo.SOURCE_DEMO
+import io.snailrun.ui.components.Badge
+import io.snailrun.ui.components.BadgeTone
 import io.snailrun.ui.components.SnailCard
+import io.snailrun.ui.format.UiLocale
 import io.snailrun.ui.format.RunFormat
 import io.snailrun.ui.theme.SnailType
 import io.snailrun.ui.theme.Spacing
@@ -40,10 +43,10 @@ import java.util.Locale
 
 // Built per call: a formatter cached at class-init keeps the locale the app
 // started with, which is wrong after the user changes the system language.
-private fun dayformat() = DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault())
+private fun dayformat() = DateTimeFormatter.ofPattern("EEE d MMM", UiLocale)
 // Built per call: a formatter cached at class-init keeps the locale the app
 // started with, which is wrong after the user changes the system language.
-private fun timeformat() = DateTimeFormatter.ofPattern("HH:mm", Locale.getDefault())
+private fun timeformat() = DateTimeFormatter.ofPattern("HH:mm", UiLocale)
 
 @Composable
 fun HistoryScreen(
@@ -53,6 +56,7 @@ fun HistoryScreen(
     onSelectDate: (LocalDate) -> Unit,
     onShowMonth: (Long) -> Unit,
     onSetProgressPeriod: (ProgressPeriod) -> Unit,
+    onTogglePaces: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (state.runs.isEmpty()) {
@@ -120,6 +124,15 @@ fun HistoryScreen(
         }
 
         if (state.mode == HistoryMode.Records) {
+            // Above the records, because it is the same question asked forwards: these
+            // are the times you have run, that is what they say you can run.
+            item {
+                PacesCard(
+                    fitness = state.fitness,
+                    expanded = state.pacesExpanded,
+                    onToggle = onTogglePaces,
+                )
+            }
             item {
                 Text(
                     text = "Your fastest time over each distance, across every run.",
@@ -234,18 +247,17 @@ private fun RunRow(run: RunEntity, onClick: () -> Unit) {
             text = run.title ?: dayformat().format(started),
             style = MaterialTheme.typography.titleMedium,
         )
-        if (run.source == SOURCE_DEMO) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = "DEMO",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.error,
+                text = timeformat().format(started),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (run.source == SOURCE_DEMO) {
+                Spacer(Modifier.size(Spacing.s))
+                Badge("Demo", BadgeTone.Long)
+            }
         }
-        Text(
-            text = timeformat().format(started),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
 
         Spacer(Modifier.height(Spacing.l))
 

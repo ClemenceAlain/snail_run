@@ -96,11 +96,18 @@ val SnailTypography = Typography(
         fontSize = 17.sp,
         lineHeight = 24.sp,
     ),
+    // The supporting line: a pace band under a session name, the sentence explaining a
+    // setting, the reason under a day. 13sp rather than 15 because these are read after
+    // the thing they support, not instead of it, and two points buys back a whole line of
+    // a card. Nothing primary was shrunk with them — bodyLarge, titleMedium and every
+    // metric are where they were, which is the difference between a denser screen and a
+    // smaller one. `onSurfaceVariant`, which carries nearly all of this text, is
+    // documented safe down to 12sp.
     bodyMedium = TextStyle(
         fontFamily = Inter,
         fontWeight = FontWeight.Normal,
-        fontSize = 15.sp,
-        lineHeight = 20.sp,
+        fontSize = 13.sp,
+        lineHeight = 18.sp,
     ),
     labelLarge = TextStyle(
         fontFamily = Inter,

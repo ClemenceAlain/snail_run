@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -22,14 +21,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import io.snailrun.domain.coach.SegmentKind
 import io.snailrun.domain.coach.Workout
 import io.snailrun.domain.coach.WorkoutSegment
 import io.snailrun.domain.coach.WorkoutSegments
 import io.snailrun.domain.coach.WorkoutType
 import io.snailrun.ui.format.SessionBlock
 import io.snailrun.ui.format.SessionFormat
-import io.snailrun.ui.theme.SnailType
 import io.snailrun.ui.theme.Spacing
 
 /**
@@ -77,27 +74,23 @@ fun SessionDetail(
 
 @Composable
 private fun BlockRow(block: SessionBlock, current: Boolean, done: Boolean, repDone: Int?) {
-    val accent = colorFor(block.kind)
     val faded = done && !current
+    val accent = MaterialTheme.colorScheme.primary
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.small)
-            .background(
-                if (current) accent.copy(alpha = 0.16f) else Color.Transparent
-            )
+            .background(if (current) accent.copy(alpha = 0.14f) else Color.Transparent)
             .padding(vertical = Spacing.xs, horizontal = Spacing.s),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Top,
     ) {
-        // A bar rather than a dot: it is the only thing carrying the kind of the step,
-        // and at four colours a dot is too small to tell a warm-up from a jog.
-        Box(
-            Modifier
-                .width(4.dp)
-                .height(if (block.recovery != null) 40.dp else 26.dp)
-                .clip(RoundedCornerShape(2.dp))
-                .background(accent.copy(alpha = if (faded) 0.3f else 1f)),
+        // The pill says what kind of running this is, where a coloured bar only hinted
+        // at it and needed a legend nobody was given.
+        Badge(
+            text = block.kind.label,
+            tone = if (faded) BadgeTone.Quiet else block.kind.badgeTone,
+            modifier = Modifier.padding(top = 2.dp),
         )
         Spacer(Modifier.width(Spacing.m))
 
@@ -115,24 +108,20 @@ private fun BlockRow(block: SessionBlock, current: Boolean, done: Boolean, repDo
                 )
                 if (repDone != null) {
                     Spacer(Modifier.width(Spacing.s))
-                    Text(
-                        text = "on $repDone",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = accent,
-                    )
+                    Badge("on $repDone", BadgeTone.Hard)
                 }
             }
             if (block.detail.isNotEmpty()) {
                 Text(
                     text = block.detail,
-                    style = SnailType.metricCaption,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             block.recovery?.let {
                 Text(
                     text = "↳ $it",
-                    style = SnailType.metricCaption,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -163,13 +152,6 @@ private fun StrengthDetail(workout: Workout, modifier: Modifier = Modifier) {
             }
         }
     }
-}
-
-@Composable
-private fun colorFor(kind: SegmentKind) = when (kind) {
-    SegmentKind.Work -> MaterialTheme.colorScheme.primary
-    SegmentKind.Recover -> MaterialTheme.colorScheme.tertiary
-    SegmentKind.WarmUp, SegmentKind.CoolDown -> MaterialTheme.colorScheme.outline
 }
 
 /**

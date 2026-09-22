@@ -1,5 +1,8 @@
 package io.snailrun.domain.voice
 
+import io.snailrun.domain.coach.StrengthCue
+import io.snailrun.domain.coach.StrengthStage
+import io.snailrun.domain.coach.StrengthStageKind
 import io.snailrun.domain.coach.WorkoutCue
 import io.snailrun.domain.coach.WorkoutSegment
 import kotlin.math.roundToInt
@@ -23,6 +26,10 @@ interface SpeechVocabulary {
 
     // ---- structured sessions ----
     fun repOf(index: Int, count: Int): String  // "rep 3 of 5"
+    fun setOf(index: Int, count: Int): String  // "set 2 of 3"
+    fun timesLabel(count: Int): String         // "12 times"
+    val perSideLabel: String                   // "each side"
+    val restLabel: String                      // "rest"
     fun countdown(seconds: Int): String        // "3"
     val easeDown: String                       // "ease down"
     val pickItUp: String                       // "pick it up"
@@ -57,6 +64,36 @@ class PaceSpeechFormatter(private val vocabulary: SpeechVocabulary) {
             if (cue.tooFast) vocabulary.easeDown else vocabulary.pickItUp
         WorkoutCue.Finished -> "${vocabulary.sessionComplete}."
         is WorkoutCue.StepStart -> stepStart(cue.segment)
+    }
+
+    /**
+     * The same, for a session on the floor.
+     *
+     * Said in full, unlike a running cue. Somebody mid-rep on a track has a heart rate of
+     * 170 and can hold about one clause; somebody who has just stood up off a mat can
+     * hear a whole sentence, and needs to — they are about to start an exercise whose
+     * name they may not know.
+     */
+    fun format(cue: StrengthCue): String = when (cue) {
+        is StrengthCue.Countdown -> vocabulary.countdown(cue.seconds)
+        StrengthCue.Finished -> "${vocabulary.sessionComplete}."
+        is StrengthCue.StageStart -> stageStart(cue.stage)
+    }
+
+    private fun stageStart(stage: StrengthStage): String {
+        if (stage.kind == StrengthStageKind.Rest) {
+            val rest = stage.seconds?.let {
+                "${vocabulary.restLabel} ${vocabulary.forLabel} ${duration(it * 1000L)}"
+            } ?: vocabulary.restLabel
+            return "$rest."
+        }
+
+        val parts = mutableListOf(stage.exercise.lowercase())
+        if (stage.setCount > 1) parts += vocabulary.setOf(stage.set, stage.setCount)
+        stage.reps?.let { parts += vocabulary.timesLabel(it) }
+        stage.seconds?.let { parts += "${vocabulary.forLabel} ${duration(it * 1000L)}" }
+        if (stage.perSide) parts += vocabulary.perSideLabel
+        return parts.joinToString(vocabulary.sentenceSeparator) + "."
     }
 
     private fun stepStart(segment: WorkoutSegment): String {

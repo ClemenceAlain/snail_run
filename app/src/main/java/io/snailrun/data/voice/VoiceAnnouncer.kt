@@ -11,6 +11,7 @@ import android.speech.tts.UtteranceProgressListener
 import android.speech.tts.Voice
 import io.snailrun.domain.voice.Announcement
 import io.snailrun.domain.voice.PaceSpeechFormatter
+import io.snailrun.domain.coach.StrengthCue
 import io.snailrun.domain.coach.WorkoutCue
 import io.snailrun.domain.voice.RunNotice
 import java.util.Locale
@@ -44,6 +45,7 @@ interface VoiceAnnouncer {
     fun speak(announcement: Announcement)
     fun speak(notice: RunNotice)
     fun speak(cue: WorkoutCue)
+    fun speak(cue: StrengthCue)
     fun speakSample()
     fun setSpeechRate(rate: Float)
     fun shutdown()
@@ -176,6 +178,10 @@ class AndroidVoiceAnnouncer(
     }
 
     override fun speak(cue: WorkoutCue) {
+        say(formatter.format(cue))
+    }
+
+    override fun speak(cue: StrengthCue) {
         say(formatter.format(cue))
     }
 

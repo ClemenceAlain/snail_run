@@ -17,7 +17,7 @@ import androidx.core.app.ServiceCompat
 import io.snailrun.MainActivity
 import io.snailrun.R
 import io.snailrun.SnailRunApp
-import io.snailrun.data.export.ExportResult
+import io.snailrun.data.haptics.buzz
 import io.snailrun.data.prefs.DemoSettings
 import io.snailrun.data.repo.SOURCE_DEMO
 import io.snailrun.data.repo.SOURCE_RECORDED
@@ -129,7 +129,7 @@ class RunRecordingService : Service() {
             // the buzz is the one that gets through a pocket, and which of them a given
             // runner is relying on is not something this can know.
             container.voiceAnnouncer.speak(cue)
-            container.haptics.cue(cue)
+            cue.buzz()?.let(container.haptics::buzz)
         }
         container.runRecorder.state
             .onEach { state ->
@@ -142,54 +142,15 @@ class RunRecordingService : Service() {
 
     private fun finishRecording() {
         scope.launch {
-            val runId = container.runRecorder.finish()
-            // Export here rather than from the UI: the run must be written and its
-            // splits derived before the GPX is generated, and only the service knows
-            // when that has happened.
-            if (runId != null && container.settings.settings.first().autoExportEnabled) {
-                exportProblem(container.gpxExporter.exportToChosenFolder(runId))
-                    ?.let(::notifyExportProblem)
-            }
+            // Finishing writes the run and derives its splits. Nothing else happens
+            // here: a run used to be exported as GPX at this point, on a schedule the
+            // user never saw, into a folder they picked once months earlier. Every
+            // failure mode of that was a notification apologising for a file the user
+            // had not asked for. Export is now only ever something you ask for, from
+            // the run's own screen.
+            container.runRecorder.finish()
             stopSelf()
         }
-    }
-
-    /**
-     * What to tell the user, or null when the file was written.
-     *
-     * A silent background write that fails silently is how a user finds out months later
-     * that half their runs were never exported. The service has no UI and is about to
-     * stop, so a notification is the only honest channel left.
-     */
-    private fun exportProblem(result: ExportResult): String? = when (result) {
-        is ExportResult.Written -> null
-        ExportResult.NoFolderChosen -> getString(R.string.notification_export_no_folder)
-        is ExportResult.FolderUnavailable -> getString(R.string.notification_export_folder_gone)
-        is ExportResult.Failed -> getString(
-            R.string.notification_export_error,
-            result.error.message ?: result.error::class.java.simpleName,
-        )
-    }
-
-    @SuppressLint("MissingPermission")
-    private fun notifyExportProblem(text: String) {
-        val openApp = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(getString(R.string.notification_export_failed_title))
-            .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setContentIntent(openApp)
-            .setAutoCancel(true)
-            .build()
-        // Its own id. `stopSelf()` tears the foreground notification down a moment from
-        // now, and reusing id 1 would take this warning with it.
-        notificationManager().notify(EXPORT_NOTIFICATION_ID, notification)
     }
 
     private fun summary(state: RecordingState.Active): String {
@@ -278,7 +239,6 @@ class RunRecordingService : Service() {
     companion object {
         private const val CHANNEL_ID = "recording"
         private const val NOTIFICATION_ID = 1
-        private const val EXPORT_NOTIFICATION_ID = 2
         private const val WAKE_LOCK_TAG = "snail_run:recording"
         private const val WAKE_LOCK_TIMEOUT_MS = 12L * 60 * 60 * 1000
 

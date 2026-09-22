@@ -33,6 +33,7 @@ import io.snailrun.domain.coach.CoachBaseline
 import io.snailrun.domain.coach.Races
 import io.snailrun.ui.components.HelpButton
 import io.snailrun.ui.components.SnailCard
+import io.snailrun.ui.format.UiLocale
 import io.snailrun.ui.format.RunFormat
 import io.snailrun.ui.theme.Spacing
 import java.time.Instant
@@ -52,7 +53,7 @@ private val BaselineHelp = listOf(
         "app knows more about you than this does, and none of it is left.",
 )
 
-private fun dayFormat() = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.getDefault())
+private fun dayFormat() = DateTimeFormatter.ofPattern("d MMM yyyy", UiLocale)
 
 /**
  * The four questions the coach cannot answer for itself.

@@ -1,6 +1,5 @@
 package io.snailrun.ui.format
 
-import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
@@ -13,7 +12,7 @@ object RunFormat {
 
     /** "4.82" — two decimals, so the number does not jump width as it climbs. */
     fun distanceKm(meters: Double): String =
-        String.format(Locale.getDefault(), "%.2f", meters / 1000.0)
+        String.format(UiLocale, "%.2f", meters / 1000.0)
 
     /** "24:17", or "1:04:17" once the run passes an hour. */
     fun duration(millis: Long): String {
@@ -22,9 +21,9 @@ object RunFormat {
         val minutes = (totalSeconds % 3600) / 60
         val seconds = totalSeconds % 60
         return if (hours > 0) {
-            String.format(Locale.getDefault(), "%d:%02d:%02d", hours, minutes, seconds)
+            String.format(UiLocale, "%d:%02d:%02d", hours, minutes, seconds)
         } else {
-            String.format(Locale.getDefault(), "%d:%02d", minutes, seconds)
+            String.format(UiLocale, "%d:%02d", minutes, seconds)
         }
     }
 
@@ -34,11 +33,11 @@ object RunFormat {
             return PACE_PLACEHOLDER
         }
         val total = secPerKm.roundToInt()
-        return String.format(Locale.getDefault(), "%d:%02d", total / 60, total % 60)
+        return String.format(UiLocale, "%d:%02d", total / 60, total % 60)
     }
 
     fun elevation(meters: Double): String =
-        String.format(Locale.getDefault(), "%d", meters.roundToInt())
+        String.format(UiLocale, "%d", meters.roundToInt())
 
     const val PACE_PLACEHOLDER = "--:--"
 }

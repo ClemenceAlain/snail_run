@@ -26,6 +26,13 @@ enum class TopLevel(val route: String, val label: String, @DrawableRes val icon:
     Settings("settings", "Settings", R.drawable.ic_settings),
 }
 
+/**
+ * The guided strength session. A push, not a tab, and without the bottom bar: it is an
+ * activity you are in rather than a place you are at, and a nav bar under it is four
+ * invitations to lose your place in a session you are two exercises into.
+ */
+const val ROUTE_STRENGTH = "strength"
+
 const val ROUTE_RUN_DETAIL = "run/{runId}"
 const val ROUTE_RUN_MAP = "run/{runId}/map"
 

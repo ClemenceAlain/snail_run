@@ -75,6 +75,16 @@ class AppContainer(private val context: Context) {
     var armedWorkout: Workout? = null
 
     /**
+     * The strength session the guided screen is about to count you through.
+     *
+     * A second slot rather than a reuse of [armedWorkout], because the two go to
+     * different places and mixing them up means a tempo handed to a screen that will try
+     * to count out its repetitions. In memory for the same reason as that one: the gap
+     * between choosing it and the screen opening is one navigation.
+     */
+    var armedStrength: Workout? = null
+
+    /**
      * The database is handed over as a lambda rather than as a value: a restore closes it
      * and replaces the file underneath, so nothing may hold the instance across that.
      */

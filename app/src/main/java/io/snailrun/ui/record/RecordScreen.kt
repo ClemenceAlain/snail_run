@@ -47,6 +47,9 @@ import io.snailrun.domain.coach.WorkoutType
 import io.snailrun.domain.model.GpsQuality
 import io.snailrun.domain.model.RunStatus
 import io.snailrun.tracking.RecordingState
+import io.snailrun.ui.components.Badge
+import io.snailrun.ui.components.BadgeTone
+import io.snailrun.ui.components.HoldButton
 import io.snailrun.ui.components.MetricReadout
 import io.snailrun.ui.components.SessionDetail
 import io.snailrun.ui.components.SessionSheet
@@ -74,6 +77,7 @@ fun RecordScreen(
     modifier: Modifier = Modifier,
     todaysSession: Workout? = null,
     todaysStrength: Workout? = null,
+    onStartStrength: (Workout) -> Unit = {},
     armedSession: Workout? = null,
     onArmSession: (Workout?) -> Unit = {},
     onNextSegment: () -> Unit = {},
@@ -145,6 +149,7 @@ fun RecordScreen(
                 onShowDetail = { workout ->
                     detail = SessionDetailRequest(workout = workout)
                 },
+                onStartStrength = onStartStrength,
             )
             Spacer(Modifier.height(Spacing.l))
         }
@@ -215,6 +220,7 @@ private fun TodaysSession(
     armed: Boolean,
     onArm: () -> Unit,
     onShowDetail: (Workout) -> Unit,
+    onStartStrength: (Workout) -> Unit,
 ) {
     SnailCard(
         modifier = Modifier.fillMaxWidth(),
@@ -270,18 +276,30 @@ private fun TodaysSession(
                 HorizontalDivider()
                 Spacer(Modifier.height(Spacing.m))
             }
-            Column(modifier = Modifier.clickable { onShowDetail(extra) }) {
-                Text(
-                    text = "Also today: ${extra.name}",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = content,
-                )
-                Text(
-                    text = "${extra.steps.size} exercises" +
-                        (SessionFormat.estimate(extra)?.let { ", $it" } ?: ""),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = content,
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(
+                    modifier = Modifier.weight(1f).clickable { onShowDetail(extra) },
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Badge("Strength", BadgeTone.Other)
+                        Spacer(Modifier.size(Spacing.s))
+                        Text(
+                            text = extra.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = content,
+                        )
+                    }
+                    Text(
+                        text = "${extra.steps.size} exercises" +
+                            (SessionFormat.estimate(extra)?.let { ", $it" } ?: ""),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = content,
+                    )
+                }
+                // Its own button rather than the Load/Unload the running session gets:
+                // there is nothing to arm, because nothing is being recorded. Pressing
+                // this goes straight to a screen that counts you through it.
+                TextButton(onClick = { onStartStrength(extra) }) { Text("Start") }
             }
         }
     }
@@ -418,56 +436,51 @@ private fun StatusRow(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
+        Badge(
+            // Said plainly: a runner who sees "Paused" without having pressed anything
+            // needs to know the app did it, not that they mis-tapped.
             text = when {
-                // Said plainly: a runner who sees "Paused" without having pressed
-                // anything needs to know the app did it, not that they mis-tapped.
                 isAutoPaused -> "Auto-paused"
                 isPaused -> "Paused"
                 isRecording -> "Recording"
                 else -> "Ready"
             },
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
+            tone = when {
+                isAutoPaused || isPaused -> BadgeTone.Long
+                isRecording -> BadgeTone.Hard
+                else -> BadgeTone.Quiet
+            },
         )
         GpsIndicator(quality = quality, gpsEnabled = gpsEnabled, demoMode = demoMode)
     }
 }
 
+/**
+ * The fix quality, as a pill.
+ *
+ * A demo run says so here rather than anywhere quieter, and in the loudest tone the app
+ * has: a demo run is saved like any other, and the only thing stopping it being mistaken
+ * for a real one is being told, every second of it.
+ */
 @Composable
 private fun GpsIndicator(quality: GpsQuality, gpsEnabled: Boolean, demoMode: Boolean) {
-    val color = when {
-        // Loud on purpose: a demo run is saved like any other, and the only thing that
-        // stops it being mistaken for a real one is being told, every second of it.
-        demoMode -> MaterialTheme.colorScheme.error
-        !gpsEnabled -> MaterialTheme.colorScheme.error
-        quality == GpsQuality.GOOD -> MaterialTheme.colorScheme.primary
-        quality == GpsQuality.OK -> MaterialTheme.colorScheme.tertiary
-        quality == GpsQuality.POOR -> MaterialTheme.colorScheme.secondary
-        else -> MaterialTheme.colorScheme.outline
+    if (demoMode) {
+        Badge("Demo — not real", BadgeTone.Long)
+        return
     }
-    val label = when {
-        demoMode -> "Demo run — not real"
-        !gpsEnabled -> "Location off"
-        quality == GpsQuality.GOOD -> "GPS good"
-        quality == GpsQuality.OK -> "GPS ok"
-        quality == GpsQuality.POOR -> "GPS weak"
-        else -> "Finding GPS"
+    if (!gpsEnabled) {
+        Badge("Location off", BadgeTone.Long)
+        return
     }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            Modifier
-                .size(8.dp)
-                .clip(CircleShape)
-                .background(color),
-        )
-        Spacer(Modifier.size(Spacing.s))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+    Badge(
+        text = when (quality) {
+            GpsQuality.GOOD -> "GPS good"
+            GpsQuality.OK -> "GPS ok"
+            GpsQuality.POOR -> "GPS weak"
+            else -> "Finding GPS"
+        },
+        tone = if (quality == GpsQuality.GOOD) BadgeTone.Easy else BadgeTone.Quiet,
+    )
 }
 
 @Composable
@@ -531,20 +544,14 @@ private fun Controls(
         Spacer(Modifier.height(Spacing.l))
 
         if (isRecording) {
-            TextButton(onClick = onFinish) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_stop),
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.secondary,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(Modifier.size(Spacing.s))
-                Text(
-                    text = "FINISH",
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-                    color = MaterialTheme.colorScheme.secondary,
-                )
-            }
+            // Held, not tapped. Finishing writes the run and drops the recorder's state,
+            // there is no undo, and the control sits under the thumb of somebody out of
+            // breath looking at the pavement.
+            HoldButton(
+                label = "FINISH",
+                icon = painterResource(R.drawable.ic_stop),
+                onConfirmed = onFinish,
+            )
         } else {
             Text(
                 text = "START",

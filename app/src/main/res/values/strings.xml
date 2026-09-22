@@ -10,16 +10,6 @@
     <string name="notification_progress">%1$s km · %2$s · %3$s /km</string>
     <string name="notification_workout_rep">%1$s %2$d/%3$d</string>
 
-    <!--
-      Shown when a finished run could not be written as a GPX file. Every one of these
-      leads with the run being safe, because it is: the GPX is a copy for elsewhere, and
-      the run itself is already in the database.
-    -->
-    <string name="notification_export_failed_title">Run saved, GPX not written</string>
-    <string name="notification_export_no_folder">Your run is safe. Choose a folder in Settings to also save runs as GPX files.</string>
-    <string name="notification_export_folder_gone">Your run is safe, but the folder you chose for GPX files is gone. Pick one again in Settings.</string>
-    <string name="notification_export_error">Your run is safe, but the GPX file could not be written: %1$s</string>
-
     <!-- Spoken announcements. Digits are fine; a colon is not. -->
     <plurals name="speech_kilometres">
         <item quantity="one">%1$s kilometre</item>
@@ -56,4 +46,13 @@
     <string name="speech_between">between</string>
     <string name="speech_and">and</string>
     <string name="speech_next">then</string>
+    <!-- Counting somebody through a session on the floor. Said while they are standing
+         up off a mat rather than mid-rep, so these can afford whole words. -->
+    <string name="speech_set_of">set %1$d of %2$d</string>
+    <plurals name="speech_times">
+        <item quantity="one">%1$d time</item>
+        <item quantity="other">%1$d times</item>
+    </plurals>
+    <string name="speech_per_side">each side</string>
+    <string name="speech_rest">rest</string>
 </resources>

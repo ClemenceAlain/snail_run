@@ -6,7 +6,12 @@ import androidx.lifecycle.viewModelScope
 import io.snailrun.AppContainer
 import io.snailrun.data.db.PersonalRecord
 import io.snailrun.data.db.RunEntity
+import io.snailrun.data.prefs.SettingsRepository
 import io.snailrun.data.repo.RunRepository
+import io.snailrun.domain.coach.Fitness
+import io.snailrun.domain.coach.FitnessEstimate
+import io.snailrun.domain.coach.RecentEffort
+import io.snailrun.ui.format.UiLocale
 import io.snailrun.domain.analysis.BestEffortFinder
 import io.snailrun.domain.analysis.CalendarMonth
 import io.snailrun.domain.analysis.DayTotal
@@ -15,8 +20,10 @@ import io.snailrun.domain.analysis.ProgressBucket
 import io.snailrun.domain.analysis.ProgressPeriod
 import io.snailrun.domain.analysis.RunCalendar
 import java.time.DayOfWeek
+import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.ZoneId
 import java.time.format.TextStyle
 import java.time.temporal.WeekFields
 import java.util.Locale
@@ -60,6 +67,10 @@ data class HistoryUiState(
     val progressPeriod: ProgressPeriod = ProgressPeriod.Week,
     val progress: List<ProgressBucket> = emptyList(),
     val records: List<DistanceRecord> = emptyList(),
+    /** What the runner can currently run at, shown beside what they have already run. */
+    val fitness: FitnessEstimate? = null,
+    /** Closed until asked for: see [io.snailrun.ui.history.PacesCard]. */
+    val pacesExpanded: Boolean = false,
 )
 
 /**
@@ -69,7 +80,11 @@ data class HistoryUiState(
  * runs, and grouping them here keeps the calendar and the list from ever disagreeing
  * about what happened on a day.
  */
-class HistoryViewModel(private val repository: RunRepository) : ViewModel() {
+class HistoryViewModel(
+    private val repository: RunRepository,
+    private val settings: SettingsRepository,
+    private val today: LocalDate = LocalDate.now(),
+) : ViewModel() {
 
     private val _ui = MutableStateFlow(HistoryUiState())
     val ui: StateFlow<HistoryUiState> = _ui.asStateFlow()
@@ -97,7 +112,37 @@ class HistoryViewModel(private val repository: RunRepository) : ViewModel() {
                 _ui.value = _ui.value.copy(records = records)
             }
         }
+
+        // The same two inputs the coach estimates from, combined the same way: the
+        // efforts the app found for itself and the race the runner reported, competing
+        // on equal terms. Two paths to one number is how two screens end up quoting
+        // different threshold paces for the same runner.
+        viewModelScope.launch {
+            val since = today.minusDays(Fitness.WINDOW_DAYS).toString()
+            combine(
+                repository.observeRecentEfforts(since),
+                settings.settings,
+            ) { efforts, saved ->
+                Fitness.estimate(
+                    efforts = efforts.map { it.toRecentEffort() } +
+                        listOfNotNull(saved.coach.baseline?.race),
+                    today = today,
+                )
+            }.collect { fitness ->
+                _ui.value = _ui.value.copy(fitness = fitness)
+            }
+        }
     }
+
+    fun togglePaces() {
+        _ui.value = _ui.value.copy(pacesExpanded = !_ui.value.pacesExpanded)
+    }
+
+    private fun PersonalRecord.toRecentEffort() = RecentEffort(
+        distanceMeters = distanceMeters,
+        durationMs = durationMs,
+        date = Instant.ofEpochMilli(startedAtEpochMs).atZone(ZoneId.systemDefault()).toLocalDate(),
+    )
 
     fun setMode(mode: HistoryMode) {
         _ui.value = rebuild(_ui.value.copy(mode = mode))
@@ -153,6 +198,10 @@ class HistoryViewModel(private val repository: RunRepository) : ViewModel() {
      * Monday across most of Europe, Sunday across much of the rest. Read from the
      * locale rather than assumed: a calendar starting on the wrong day is misread at a
      * glance rather than noticed.
+     *
+     * The one thing on this screen that still follows the phone. Which day a week starts
+     * on is a regional convention, not a language, so it does not move to [UiLocale] with
+     * the month names above it.
      */
     private fun firstDayOfWeek(): DayOfWeek =
         WeekFields.of(Locale.getDefault()).firstDayOfWeek
@@ -160,10 +209,10 @@ class HistoryViewModel(private val repository: RunRepository) : ViewModel() {
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            HistoryViewModel(container.runRepository) as T
+            HistoryViewModel(container.runRepository, container.settings) as T
     }
 }
 
-/** "Mon", in the reader's language. */
+/** "Mon". English, like every other word on the screen — see [UiLocale]. */
 fun DayOfWeek.shortLabel(): String =
-    getDisplayName(TextStyle.SHORT, Locale.getDefault())
+    getDisplayName(TextStyle.SHORT, UiLocale)

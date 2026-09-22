@@ -58,7 +58,9 @@ import io.snailrun.ui.detail.RunDetailViewModel
 import io.snailrun.ui.history.HistoryScreen
 import io.snailrun.ui.history.HistoryViewModel
 import io.snailrun.ui.map.RouteMapScreen
+import io.snailrun.domain.coach.Workout
 import io.snailrun.ui.nav.ROUTE_RUN_DETAIL
+import io.snailrun.ui.nav.ROUTE_STRENGTH
 import io.snailrun.ui.nav.ROUTE_RUN_MAP
 import io.snailrun.ui.nav.SnailRunScaffold
 import io.snailrun.ui.nav.TopLevel
@@ -66,6 +68,8 @@ import io.snailrun.ui.nav.runDetailRoute
 import io.snailrun.ui.nav.runMapRoute
 import io.snailrun.ui.record.RecordScreen
 import io.snailrun.ui.record.RecordViewModel
+import io.snailrun.ui.strength.StrengthScreen
+import io.snailrun.ui.strength.StrengthViewModel
 import io.snailrun.ui.settings.SettingsActions
 import io.snailrun.ui.settings.SettingsScreen
 import io.snailrun.ui.theme.SnailRunTheme
@@ -95,15 +99,27 @@ class MainActivity : ComponentActivity() {
                         modifier = modifier,
                     ) {
                         composable(TopLevel.Record.route) {
-                            RecordRoute()
+                            RecordRoute(
+                                onStartStrength = {
+                                    container.armedStrength = it
+                                    navController.navigate(ROUTE_STRENGTH)
+                                },
+                            )
                         }
                         composable(TopLevel.History.route) {
                             HistoryRoute(
                                 onOpenRun = { navController.navigate(runDetailRoute(it)) },
                             )
                         }
+                        composable(ROUTE_STRENGTH) {
+                            StrengthRoute(onBack = { navController.popBackStack() })
+                        }
                         composable(TopLevel.Coach.route) {
                             CoachRoute(
+                                onStartStrength = {
+                                    container.armedStrength = it
+                                    navController.navigate(ROUTE_STRENGTH)
+                                },
                                 onRunSession = {
                                     navController.navigate(TopLevel.Record.route) {
                                         popUpTo(navController.graph.findStartDestination().id) {
@@ -143,7 +159,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun RecordRoute() {
+    private fun RecordRoute(onStartStrength: (Workout) -> Unit) {
         val viewModel: RecordViewModel = viewModel(factory = RecordViewModel.Factory(container))
         val ui by viewModel.ui.collectAsStateWithLifecycle()
         val recording by viewModel.recording.collectAsStateWithLifecycle()
@@ -191,6 +207,7 @@ class MainActivity : ComponentActivity() {
             onFinish = { RunRecordingService.finish(this) },
             todaysSession = ui.todaysSession,
             todaysStrength = ui.todaysStrength,
+            onStartStrength = onStartStrength,
             armedSession = ui.armedSession,
             onArmSession = viewModel::armSession,
             onNextSegment = { RunRecordingService.nextSegment(this) },
@@ -234,11 +251,47 @@ class MainActivity : ComponentActivity() {
             onSelectDate = viewModel::selectDate,
             onShowMonth = viewModel::showMonth,
             onSetProgressPeriod = viewModel::setProgressPeriod,
+            onTogglePaces = viewModel::togglePaces,
+        )
+    }
+
+    /**
+     * The guided strength session.
+     *
+     * No permission, no service, no location: it reads a workout out of the container and
+     * counts through it. The screen is kept awake for its whole length unconditionally,
+     * rather than on the `keepScreenOn` setting — that setting is about a phone in a
+     * pocket on a long run, and this one is lying on the floor being read.
+     */
+    @Composable
+    private fun StrengthRoute(onBack: () -> Unit) {
+        val workout = container.armedStrength
+        val viewModel: StrengthViewModel =
+            viewModel(factory = StrengthViewModel.Factory(container))
+        LaunchedEffect(workout) { workout?.let(viewModel::load) }
+        val ui by viewModel.ui.collectAsStateWithLifecycle()
+
+        DisposableEffect(Unit) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            onDispose { window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+        }
+
+        if (workout == null) {
+            LaunchedEffect(Unit) { onBack() }
+            return
+        }
+
+        StrengthScreen(
+            state = ui,
+            onStart = viewModel::start,
+            onPause = viewModel::pause,
+            onNext = viewModel::next,
+            onDone = onBack,
         )
     }
 
     @Composable
-    private fun CoachRoute(onRunSession: () -> Unit) {
+    private fun CoachRoute(onRunSession: () -> Unit, onStartStrength: (Workout) -> Unit) {
         val viewModel: CoachViewModel = viewModel(factory = CoachViewModel.Factory(container))
         val ui by viewModel.ui.collectAsStateWithLifecycle()
         CoachScreen(
@@ -251,6 +304,7 @@ class MainActivity : ComponentActivity() {
                 container.armedWorkout = workout
                 onRunSession()
             },
+            onStartStrength = onStartStrength,
             onEditBaseline = viewModel::editBaseline,
             onSaveBaseline = viewModel::saveBaseline,
             today = LocalDate.now(),
@@ -382,19 +436,6 @@ class MainActivity : ComponentActivity() {
             if (ttsState is TtsState.Ready) container.voiceAnnouncer.setSpeechRate(settings.speechRate)
         }
 
-        val folderPicker = rememberLauncherForActivityResult(
-            ActivityResultContracts.OpenDocumentTree(),
-        ) { uri ->
-            if (uri != null) {
-                // Persist the grant, or it is gone on the next launch.
-                contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
-                )
-                scope.launch { container.settings.setExportFolderUri(uri.toString()) }
-            }
-        }
-
         var basemapStatus by remember { mutableStateOf("No map file yet.") }
         LaunchedEffect(settings.basemapUri) {
             val active = container.basemapStore.active()
@@ -485,8 +526,6 @@ class MainActivity : ComponentActivity() {
                 },
                 onTestVoice = { container.voiceAnnouncer.speakSample() },
                 onOpenTtsSettings = { openTtsSettings() },
-                onChooseExportFolder = { folderPicker.launch(null) },
-                onAutoExport = { scope.launch { container.settings.setAutoExportEnabled(it) } },
                 onKeepScreenOn = { scope.launch { container.settings.setKeepScreenOn(it) } },
                 onAutoPause = { scope.launch { container.settings.setAutoPauseEnabled(it) } },
                 // Any type: MBTiles has no registered MIME type, and pickers on

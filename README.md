@@ -16,7 +16,7 @@ network socket. Nothing it records can leave the device.
   saying so aloud both times.
 - Speaks your pace aloud at every kilometre, in English, using an on-device speech
   engine.
-- Saves every finished run as a GPX file in a folder you pick once.
+- Exports a run as GPX when you ask for one, from the run's own screen.
 - Shows past runs as a calendar with that month's runs listed under it, a progress chart
   or your records, and shows one with its trace, its pace-and-elevation graph and any
   records. Drag across the graph for the average over any stretch — it lights up on the
@@ -31,7 +31,7 @@ network socket. Nothing it records can leave the device.
   date. On a fresh install it asks four questions about the month before it, so the first
   week fits you rather than a beginner.
 - Puts two bodyweight strength sessions a week beside the running, on the days that can
-  take them.
+  take them, and counts you through one exercise at a time when you start it.
 - Backs every run up to one file you choose — and your race, your rearranged weeks and
   your starting point with them — and puts one back.
 - Survives being killed mid-run: the track is in the database, and the app offers to
@@ -39,6 +39,27 @@ network socket. Nothing it records can leave the device.
 
 Nothing is planned next. The Runs tab's three modes — calendar, progress, records — the
 Coach tab and the run's own screen cover what the app set out to do.
+
+## Badges, and the size of things
+
+Every screen labels itself with the same five-tone pill: quiet for a rest day or a
+warm-up, pale green for easy running, filled green for anything that will hurt, coral for
+a long run, amber for strength. A week of them reads in one pass without a word of it
+being read, which is the point — the type under them can then be small, because it is
+detail rather than headline.
+
+The supporting line is 13sp, down from 15. Nothing primary moved: body text, session
+names and every metric are where they were, so this is a denser screen rather than a
+smaller one. `onSurfaceVariant`, which carries nearly all of that text, is documented safe
+down to 12sp. Each tone pair clears 4.5:1 in both schemes; they are small text under WCAG
+however emphatic they look.
+
+**The app writes in English on every phone**, whatever the system language. Every string
+in it is English, so following the locale meant a French phone rendering "mar. 23 sept."
+under a card headed "Tempo", and "6,3 km" beside "Threshold". `UiLocale` pins the on-screen
+half of that and `SPEECH_LOCALE` the spoken half; both move together on the day the app
+ships a second language. The one thing still read from the phone is which day a calendar
+week starts on, because that is a regional convention rather than a language.
 
 ## Demo mode
 
@@ -99,11 +120,17 @@ month planning as though you had never run. They ride in a small key-value table
 into the backup file after the database is copied into it — outside the Room schema, so
 it costs no migration, and a build that predates it simply does not look for it.
 
-**Not in the backup:** settings, and the map file you picked. Android ties the GPX export folder
-grant and the picked map file to the installation, so neither would survive a reinstall
-even if the backup carried them — and the map file is hundreds of megabytes you still
-have the original of. A GPX export is not a restore path either: it is a copy for other
-programs, and nothing reads it back.
+**Not in the backup:** settings, and the map file you picked. Android ties the picked map
+file to the installation, so it would not survive a reinstall even if the backup carried
+it — and it is hundreds of megabytes you still have the original of. A GPX export is not
+a restore path either: it is a copy for other programs, and nothing reads it back.
+
+There is no longer a switch to write every finished run out as GPX. It defaulted to on,
+wrote into a folder chosen once and possibly months earlier, and its entire failure
+surface was notifications apologising for a file nobody had asked for: no folder picked,
+folder since deleted, grant lost to a reinstall. A GPX is a copy for another program,
+which makes it an export, which makes it something you do on purpose — so it is now only
+**Export** and **Share** on a run's own screen.
 
 ## The Runs tab
 
@@ -424,9 +451,14 @@ about a rearrangement. The paragraph restating the week's total that used to sit
 was the one thing on the screen nobody read: the seven cards immediately below each carry
 their own distance.
 
-**The VDOT is hidden.** It is a number with no use at the point of reading it — it does not
-tell you how to run today, and a low one reads as a verdict. The paces it was ever for are
-the card; tap the card and the number appears beside where it came from.
+**The paces are not on this tab at all.** They used to sit open at the bottom of it under
+a heading giving a VDOT, and two things were wrong with that. A VDOT is a number with no
+use at the point of reading it: it does not tell you how to run today, and a low one reads
+as a verdict. And the paces themselves answer a question about the runner rather than
+about the week — a personal best over 5 km and the threshold pace it implies are the same
+fact said twice. So they live under **Runs → Records**, closed until tapped, with the VDOT
+as a footnote inside. They are still *used* here, written into every session; they are
+just no longer recited.
 
 **Four weeks are planned, one shown at a time.** Arrows step between them. Each week
 after the first is planned against a history
@@ -436,6 +468,13 @@ block built without rolling the history forward would show four identical weeks 
 progression at all. Fitness is deliberately *not* rolled forward: the paces stay at what
 your efforts say today, because a projected VDOT four weeks out is a guess, and a guess
 in a pace is the one thing this module exists to avoid.
+
+**Finishing a run is held, not tapped.** It closes the run and drops the recorder's
+state, there is no undo, and the control sits under the thumb of somebody out of breath
+looking at the pavement. A bar fills under the label as you hold, so the gesture explains
+itself the first time somebody brushes it and an abandoned hold visibly loses its
+progress. A confirmation dialog is the usual answer and is worse: it puts a second target
+on screen for a shaking hand, and trains people to dismiss it without reading.
 
 **Hold a day to drag it somewhere else.** The days it passes shift along by one, because
 that is what moving a session means — pushing Tuesday's tempo to Thursday slides
@@ -481,6 +520,30 @@ as real runs do — a month later none of it is left, which is the point at whic
 knows more about you than you just told it. Nothing has to be cleared or expired, and
 somebody who answers and then stops running for a fortnight gets the same
 return-to-running week as anybody else.
+
+### The strength session, counted
+
+**Start** on the strength card — on the record screen, or from a day in the Coach tab —
+opens a screen that counts you through it. One exercise at hero size, the set you are on,
+and a countdown or a rep target. The background changes colour between working and
+resting, which is the one piece of state readable from a mat two feet away without
+focusing on anything.
+
+The design turns on one asymmetry. A running session is driven entirely by GPS fixes: the
+runner covers ground whether or not they are paying attention, so every boundary can be
+detected. A floor session has no such signal — nothing observable happens when somebody
+finishes their tenth squat. So held sets and the forty-five-second rests end on a clock
+and advance themselves, and counted sets end when you say they have, which is why **DONE**
+is the big button during one rather than a small one beside a timer. `StrengthSession` is
+pure and clock-free like the running scheduler, and `StrengthSessionTest` drives it with
+numbers.
+
+**Nothing is recorded.** No location is read, no run row is written, and nothing reaches
+the history or the coach's volume arithmetic. There is no distance to measure and a 0 km
+entry in the runs list would be a lie about a real piece of training. The consequence,
+stated because it is the obvious next question: a completed strength session is not ticked
+off anywhere, since the coach infers completion from runs and there is no run. Doing that
+properly needs somewhere to store it, which is a schema change and has not been made.
 
 **A race is optional.** Settings → Coach takes a distance and a date, and the plan then
 counts back from it: build past four weeks out, sharpen inside four, taper inside two.
