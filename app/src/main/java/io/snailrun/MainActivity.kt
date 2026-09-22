@@ -190,6 +190,7 @@ class MainActivity : ComponentActivity() {
             // The service owns the ordering: it completes the run, then exports it.
             onFinish = { RunRecordingService.finish(this) },
             todaysSession = ui.todaysSession,
+            todaysStrength = ui.todaysStrength,
             armedSession = ui.armedSession,
             onArmSession = viewModel::armSession,
             onNextSegment = { RunRecordingService.nextSegment(this) },

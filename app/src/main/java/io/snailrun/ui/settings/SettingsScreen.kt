@@ -501,18 +501,23 @@ private fun VoiceStatus(state: TtsState, onOpenTtsSettings: () -> Unit) {
             onOpenTtsSettings,
         )
 
+        // "English" rather than "your language": the announcements are written in
+        // English and only in English, so that is what the engine is asked for whatever
+        // the phone is set to. Saying otherwise would send someone hunting for voice
+        // data in a language that would not have helped.
         is TtsState.Unavailable.LanguageMissing -> Advice(
-            "Voice data for your language is not installed.",
+            "English voice data is not installed. snail run speaks English.",
             onOpenTtsSettings,
         )
 
         is TtsState.Unavailable.LanguageUnsupported -> Advice(
-            "The installed engine does not speak your language.",
+            "The installed engine does not speak English, which is the language snail " +
+                "run announces in.",
             onOpenTtsSettings,
         )
 
         is TtsState.Unavailable.OnlyNetworkVoices -> Advice(
-            "The only voices for your language need an internet connection. snail run " +
+            "The only English voices installed need an internet connection. snail run " +
                 "never goes online, so voice stays off. Install eSpeak NG or RHVoice " +
                 "for offline speech.",
             onOpenTtsSettings,

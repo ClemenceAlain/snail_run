@@ -61,7 +61,11 @@ interface VoiceAnnouncer {
 class AndroidVoiceAnnouncer(
     private val context: Context,
     private val formatter: PaceSpeechFormatter,
-    private val locale: Locale = Locale.getDefault(),
+    /**
+     * English, not the phone's language. See [SPEECH_LOCALE]: the words being read are
+     * English, so the voice reading them has to be too.
+     */
+    private val locale: Locale = SPEECH_LOCALE,
 ) : VoiceAnnouncer {
 
     private val _state = MutableStateFlow<TtsState>(TtsState.Initialising)

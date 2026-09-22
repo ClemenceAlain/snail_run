@@ -31,6 +31,8 @@ data class RecordUiState(
     val lastFinishedRunId: Long? = null,
     /** What the coach has down for today, if anything. Null on a rest day. */
     val todaysSession: Workout? = null,
+    /** The reinforcement work for today, if the week put any here. Never recorded. */
+    val todaysStrength: Workout? = null,
     /** The session that will be started, once the runner has said yes to it. */
     val armedSession: Workout? = null,
 )
@@ -75,10 +77,11 @@ class RecordViewModel(
                 ).firstOrNull()
                     ?.days
                     ?.firstOrNull { it.date == today }
-                    ?.workout
-                    ?.takeIf { it.type != WorkoutType.Rest }
-            }.collect { session ->
-                _ui.value = _ui.value.copy(todaysSession = session)
+            }.collect { day ->
+                _ui.value = _ui.value.copy(
+                    todaysSession = day?.workout?.takeIf { it.type != WorkoutType.Rest },
+                    todaysStrength = day?.strength,
+                )
             }
         }
     }

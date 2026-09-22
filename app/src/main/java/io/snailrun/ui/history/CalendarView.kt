@@ -26,9 +26,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.snailrun.domain.analysis.CalendarCell
 import io.snailrun.domain.analysis.CalendarMonth
-import io.snailrun.ui.components.MetricRow
+import io.snailrun.ui.components.MetricReadout
 import io.snailrun.ui.components.SnailCard
 import io.snailrun.ui.format.RunFormat
+import io.snailrun.ui.theme.SnailType
 import io.snailrun.ui.theme.Spacing
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -68,7 +69,11 @@ fun CalendarView(
             TextButton(onClick = { onShowMonth(1) }) { Text("›") }
         }
 
-        Spacer(Modifier.height(Spacing.s))
+        Spacer(Modifier.height(Spacing.m))
+
+        MonthTotals(month)
+
+        Spacer(Modifier.height(Spacing.l))
 
         Row(modifier = Modifier.fillMaxWidth()) {
             month.dayOfWeekOrder.forEach { day ->
@@ -99,19 +104,65 @@ fun CalendarView(
             }
         }
 
-        Spacer(Modifier.height(Spacing.l))
+    }
+}
 
-        SnailCard(modifier = Modifier.fillMaxWidth()) {
-            MetricRow(
-                metrics = listOf(
-                    RunFormat.distanceKm(month.meters) to "km",
-                    RunFormat.duration(month.movingMs) to "time",
-                    "${month.runCount}" to "runs",
-                    "${month.activeDays}" to "days",
-                ),
+/**
+ * What the month came to, above the grid rather than under it.
+ *
+ * Above, because the number is the answer and the grid is the working: a reader wants to
+ * know they ran 42 km before they want to know which Tuesdays.
+ *
+ * Distance leads at hero size and the rest support it. Four equal columns gave the same
+ * weight to the kilometres and to a bare count of active days, which is the one figure
+ * nobody opens this screen for. Average pace replaces it — it is the thing a month of
+ * running actually says about you, and it was not shown anywhere.
+ */
+@Composable
+private fun MonthTotals(month: CalendarMonth, modifier: Modifier = Modifier) {
+    SnailCard(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            MetricReadout(
+                value = RunFormat.distanceKm(month.meters),
+                caption = "km",
+                valueStyle = SnailType.metricLarge,
+                alignment = Alignment.Start,
+            )
+            MetricReadout(
+                value = RunFormat.duration(month.movingMs),
+                caption = "moving",
+                valueStyle = SnailType.metricSmall,
+                alignment = Alignment.End,
+            )
+            MetricReadout(
+                value = RunFormat.pace(averagePace(month)),
+                caption = "/km",
+                valueStyle = SnailType.metricSmall,
+                alignment = Alignment.End,
             )
         }
+
+        Spacer(Modifier.height(Spacing.s))
+        Text(
+            text = when (month.runCount) {
+                0 -> "No runs this month"
+                1 -> "1 run"
+                else -> "${month.runCount} runs on ${month.activeDays} days"
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
+}
+
+/** Seconds per kilometre across the whole month, or null before there is a month. */
+private fun averagePace(month: CalendarMonth): Double? {
+    if (month.meters <= 0.0 || month.movingMs <= 0L) return null
+    return month.movingMs / 1000.0 / (month.meters / 1000.0)
 }
 
 @Composable

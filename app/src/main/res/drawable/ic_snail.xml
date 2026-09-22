@@ -1,12 +1,38 @@
+<!--
+  The same snail as the launcher icon, at tab size.
+
+  Drawn in the launcher's own 108 coordinates inside a scaled group rather than redrawn at
+  24: two hand-converted copies of the same curves drift apart the first time one of them
+  is touched, and the tab icon sitting a pixel off from the app icon is exactly the sort of
+  thing that is never noticed and never looks right either.
+
+  White, because every use of it is tinted by the caller.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp" android:height="24dp"
     android:viewportWidth="24" android:viewportHeight="24">
-    <path android:pathData="M4.5,16 h8 a2,2 0 0 1 0,3 h-8.5 a2.4,2.4 0 0 1 0,-4.6 h1.6 z"
-        android:fillColor="#FFFFFF" />
-    <path android:pathData="M14,12.5 m-5.5,0 a5.5,5.5 0 1,1 11,0 a5.5,5.5 0 1,1 -11,0"
-        android:fillColor="#FFFFFF" />
-    <path android:pathData="M14,12.5 m-2.6,0 a2.6,2.6 0 1,0 5.2,0 a2.6,2.6 0 1,0 -5.2,0"
-        android:fillColor="#000000" android:fillAlpha="0.28" />
-    <path android:pathData="M4.6,14.6 l-1.4,-3.6" android:strokeColor="#FFFFFF"
-        android:strokeWidth="1.5" android:strokeLineCap="round" />
+    <!-- 0.3535 makes the 59-unit-wide drawing 21 units wide; the offsets put its centre,
+         (53.3, 54) in launcher coordinates, on (12, 12) here. -->
+    <group
+        android:scaleX="0.3535" android:scaleY="0.3535"
+        android:translateX="-6.84" android:translateY="-7.09">
+
+        <path android:pathData="M32,63 h36 a4,4 0 0 1 0,8 h-40 a6,6 0 0 1 0,-12 h4 z"
+            android:fillColor="#FFFFFF" />
+        <path android:pathData="M66,54 m-17,0 a17,17 0 1,1 34,0 a17,17 0 1,1 -34,0"
+            android:fillColor="#FFFFFF" />
+        <!-- The whorl is a hole punched with the caller's own background, which a tinted
+             icon cannot know, so it is drawn as a translucent dark disc instead. -->
+        <path android:pathData="M63,52 m-8.5,0 a8.5,8.5 0 1,0 17,0 a8.5,8.5 0 1,0 -17,0"
+            android:fillColor="#000000" android:fillAlpha="0.3" />
+
+        <path android:pathData="M30,60 L26,50" android:strokeColor="#FFFFFF"
+            android:strokeWidth="3" android:strokeLineCap="round" />
+        <path android:pathData="M26,50 m-2.4,0 a2.4,2.4 0 1,1 4.8,0 a2.4,2.4 0 1,1 -4.8,0"
+            android:fillColor="#FFFFFF" />
+        <path android:pathData="M33,59 L32,48" android:strokeColor="#FFFFFF"
+            android:strokeWidth="2.6" android:strokeLineCap="round" />
+        <path android:pathData="M32,48 m-2.2,0 a2.2,2.2 0 1,1 4.4,0 a2.2,2.2 0 1,1 -4.4,0"
+            android:fillColor="#FFFFFF" />
+    </group>
 </vector>

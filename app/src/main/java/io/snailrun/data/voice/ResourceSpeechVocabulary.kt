@@ -1,23 +1,56 @@
 package io.snailrun.data.voice
 
 import android.content.Context
+import android.content.res.Configuration
 import io.snailrun.R
 import io.snailrun.domain.voice.RunNotice
 import io.snailrun.domain.voice.SpeechVocabulary
 import java.util.Locale
 
 /**
- * Supplies the announcement wording from string resources, so the voice follows the
- * phone's language. Numbers stay as digits — engines read "5" correctly in any
- * language; it is "5:12" that they mangle.
+ * The one language snail run speaks aloud.
+ *
+ * English, on every phone, whatever the system language is set to. Not a simplification:
+ * every announcement string in this app exists only in English, so following the phone's
+ * locale meant a French phone picking a French voice and then handing it "average pace 5
+ * minutes 12 seconds per kilometre" — an English sentence read with French phonemes,
+ * which is neither language and is close to unintelligible at a run.
+ *
+ * Two things have to agree for the voice to work, and this constant is what makes them:
+ * the words come from the English resources below, and [io.snailrun.data.voice
+ * .AndroidVoiceAnnouncer] asks the engine for an English voice to read them.
+ *
+ * The day the app ships a `values-fr`, this becomes a real choice and both ends of it
+ * move together. Until then there is only one right answer.
  */
-class ResourceSpeechVocabulary(private val context: Context) : SpeechVocabulary {
+val SPEECH_LOCALE: Locale = Locale.ENGLISH
+
+/**
+ * Supplies the announcement wording from string resources, in [SPEECH_LOCALE].
+ *
+ * Numbers stay as digits — engines read "5" correctly in any language; it is "5:12" that
+ * they mangle.
+ */
+class ResourceSpeechVocabulary(context: Context) : SpeechVocabulary {
+
+    /**
+     * Resources forced to English, rather than the caller's context.
+     *
+     * Reading `values/` happens to give English today because that is the only folder
+     * there is. Pinning it means a translation added later cannot silently start feeding
+     * French words to an English voice.
+     */
+    private val context: Context = context.createConfigurationContext(
+        Configuration(context.resources.configuration).apply { setLocale(SPEECH_LOCALE) }
+    )
 
     override fun kilometres(value: Double): String {
         val text = if (value == value.toInt().toDouble()) {
             value.toInt().toString()
         } else {
-            String.format(Locale.getDefault(), "%.1f", value)
+            // English, so the decimal separator is a point. A French "2,5" read by an
+            // English voice comes out as "two comma five" on the literal engines.
+            String.format(SPEECH_LOCALE, "%.1f", value)
         }
         return context.resources.getQuantityString(
             R.plurals.speech_kilometres, value.toInt().coerceAtLeast(1), text,

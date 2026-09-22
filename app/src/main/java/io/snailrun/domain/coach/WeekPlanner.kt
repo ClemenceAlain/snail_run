@@ -10,6 +10,16 @@ data class PlannedDay(
     val workout: Workout,
     /** A run was recorded on this day. Inferred, not ticked off — see [WeekPlanner]. */
     val done: Boolean = false,
+    /**
+     * The reinforcement session on this day, if it got one.
+     *
+     * A second session rather than a replacement for [workout], because that is what it
+     * is: twenty minutes on the floor sits beside a rest day or an easy run, it does not
+     * take one away. Keeping it in its own field is also what stops it ever reaching the
+     * volume arithmetic, the recorder, or the "what is today's session" lookup on the
+     * record screen — all three of which only ever read [workout].
+     */
+    val strength: Workout? = null,
 )
 
 data class WeekPlan(
@@ -94,6 +104,15 @@ object WeekPlanner {
     const val MARATHON_SHARE = 0.20
     const val MARATHON_CAP_M = 25_000.0
 
+    /**
+     * Reinforcement sessions in an ordinary week.
+     *
+     * Two is where the evidence sits, and it is also the most a runner keeps doing. It
+     * does not vary with mileage: strength work is insurance against the landings, and
+     * the runner with the smallest week is usually the one with the least of it already.
+     */
+    const val STRENGTH_SESSIONS = 2
+
     /** A first week for someone with almost no history. Three easy runs, nothing clever. */
     const val BASE_WEEK_METERS = 15_000.0
     private const val MIN_EASY_M = 3_000.0
@@ -126,6 +145,15 @@ object WeekPlanner {
         val longRun = buildLongRun(budget, load, paces, qualityMeters, easyDates.size)
         val easyShare = ((budget.meters - qualityMeters - longRun.totalMeters) /
             easyDates.size.coerceAtLeast(1)).coerceAtLeast(MIN_EASY_M)
+
+        val strengthDates = chooseStrengthDays(
+            dates = dates,
+            runDates = runDates,
+            longDate = longDate,
+            qualityDates = qualityDates,
+            count = budget.strength,
+        )
+        val strength = Strength.session(weekStart.toEpochDay() / 7)
 
         val ranOn = thisWeeksRuns.map { it.date }.toSet()
         var stridesPlaced = false
@@ -161,7 +189,12 @@ object WeekPlanner {
                 }
                 else -> Workouts.rest(restReason(budget.runDays))
             }
-            PlannedDay(date = date, workout = workout, done = date in ranOn)
+            PlannedDay(
+                date = date,
+                workout = workout,
+                done = date in ranOn,
+                strength = strength.takeIf { date in strengthDates },
+            )
         }
 
         val planned = days.sumOf { it.workout.totalMeters }
@@ -260,7 +293,10 @@ object WeekPlanner {
     fun WeekPlan.reordered(order: List<Int>): WeekPlan {
         if (order.sorted() != days.indices.toList()) return this
         val moved = order.mapIndexed { position, source ->
-            days[position].copy(workout = days[source].workout)
+            days[position].copy(
+                workout = days[source].workout,
+                strength = days[source].strength,
+            )
         }
         return copy(
             days = moved,
@@ -315,6 +351,14 @@ object WeekPlanner {
         val runDays: Int,
         val quality: Int,
         val strides: Boolean,
+        /**
+         * Reinforcement sessions this week.
+         *
+         * Two, nearly always. It is the one part of the plan that does not scale with
+         * mileage: a runner on twenty kilometres a week needs the strength work more than
+         * one on eighty, not less, and it costs neither of them a kilometre.
+         */
+        val strength: Int,
         val note: (Double) -> String,
     )
 
@@ -334,6 +378,7 @@ object WeekPlanner {
                 runDays = 3,
                 quality = 0,
                 strides = false,
+                strength = STRENGTH_SESSIONS,
                 note = { "Not enough behind you to plan from yet. A week of easy running." },
             )
 
@@ -342,6 +387,7 @@ object WeekPlanner {
                 runDays = min(days, 4),
                 quality = 0,
                 strides = false,
+                strength = STRENGTH_SESSIONS,
                 note = { total ->
                     "You have not run in ${load.daysSinceLastRun} days. Back at ${km(total)}, " +
                         "all easy."
@@ -353,6 +399,7 @@ object WeekPlanner {
                 runDays = days,
                 quality = 0,
                 strides = false,
+                strength = STRENGTH_SESSIONS,
                 note = { total ->
                     "Last week was ${times(load.ratio)} your four-week average. Holding level " +
                         "at ${km(total)}, all easy."
@@ -364,6 +411,7 @@ object WeekPlanner {
                 runDays = days,
                 quality = allowed,
                 strides = days >= 4,
+                strength = STRENGTH_SESSIONS,
                 note = { total ->
                     "Three rising weeks behind you, so a cutback: ${km(total)}. The hard days stay."
                 },
@@ -380,6 +428,7 @@ object WeekPlanner {
                     runDays = days,
                     quality = allowed,
                     strides = days >= 4 && allowed <= 1,
+                    strength = STRENGTH_SESSIONS,
                     note = { total ->
                         "Last week ${km(load.acuteMeters)}, four-week average " +
                             "${km(load.chronicWeeklyMeters)}. This week ${km(total)}."
@@ -391,6 +440,9 @@ object WeekPlanner {
         if (taper == 1.0) return budget
         return budget.copy(
             meters = budget.meters * taper,
+            // One, not two. A taper exists to arrive fresh, and the only thing a second
+            // set of squats can do to race day is take something off it.
+            strength = 1,
             note = { total ->
                 "Tapering: ${km(total)}, about ${percent(taper)} of normal. The sharpness stays."
             },
@@ -464,6 +516,51 @@ object WeekPlanner {
         return chosen.sorted()
     }
 
+    /**
+     * Which days carry the reinforcement work.
+     *
+     * Rest days first. A runner who has already laced up is not the one who needs a
+     * reason to be on the floor, and a set of squats is the easiest thing in a week to
+     * fit around everything else.
+     *
+     * The one rule that is not a preference: never the day before something hard. Loaded
+     * legs are slow legs for about twenty-four hours, and a tempo run on them is a tempo
+     * run at the wrong pace. If honouring that would leave the week with no room at all —
+     * six running days with two quality sessions and a long run does — the fallback puts
+     * the strength work *on* a hard day instead, after the running. Hard days hard is a
+     * worse-looking plan and a better-recovered runner than spreading the load thin.
+     */
+    private fun chooseStrengthDays(
+        dates: List<LocalDate>,
+        runDates: List<LocalDate>,
+        longDate: LocalDate,
+        qualityDates: List<LocalDate>,
+        count: Int,
+    ): List<LocalDate> {
+        if (count <= 0) return emptyList()
+        val hard = (qualityDates + longDate).toSet()
+        val eveOfHard = hard.map { it.minusDays(1) }.toSet()
+        val chosen = mutableListOf<LocalDate>()
+
+        fun take(candidates: List<LocalDate>) {
+            candidates.forEach { date ->
+                if (chosen.size >= count) return
+                if (date in eveOfHard) return@forEach
+                // Never back to back: two sessions on consecutive days is one session
+                // and one session done on sore legs.
+                if (chosen.any { kotlin.math.abs(it.toEpochDay() - date.toEpochDay()) <= 1 }) {
+                    return@forEach
+                }
+                chosen += date
+            }
+        }
+
+        take(dates.filterNot { it in runDates })
+        take(dates.filter { it in runDates && it !in hard })
+        take(dates.filter { it in hard })
+        return chosen.sorted()
+    }
+
     // ---- which sessions --------------------------------------------------------------
 
     private val ThresholdRotation = listOf(WorkoutType.Tempo, WorkoutType.CruiseIntervals)
@@ -528,7 +625,7 @@ object WeekPlanner {
             }
 
             WorkoutType.Intervals -> {
-                val work = min(budgetMeters * INTERVAL_SHARE, INTERVAL_CAP_M)
+                val work = Round.blockMeters(min(budgetMeters * INTERVAL_SHARE, INTERVAL_CAP_M))
                 Workouts.intervals(
                     work, paces,
                     from + "${pace(paces.intervalSecPerKm)}/km. Eight per cent of the week, " +
@@ -537,7 +634,7 @@ object WeekPlanner {
             }
 
             WorkoutType.Hills -> {
-                val work = min(budgetMeters * INTERVAL_SHARE, INTERVAL_CAP_M)
+                val work = Round.blockMeters(min(budgetMeters * INTERVAL_SHARE, INTERVAL_CAP_M))
                 Workouts.hills(
                     work, paces,
                     "The hill sets the pace: run it hard and ignore the watch. " +
@@ -546,7 +643,7 @@ object WeekPlanner {
             }
 
             WorkoutType.Fartlek -> {
-                val work = min(budgetMeters * INTERVAL_SHARE, INTERVAL_CAP_M)
+                val work = Round.blockMeters(min(budgetMeters * INTERVAL_SHARE, INTERVAL_CAP_M))
                 Workouts.fartlek(
                     work, paces,
                     from + "about ${pace(paces.intervalSecPerKm)}/km for the quick minutes. " +
@@ -555,7 +652,7 @@ object WeekPlanner {
             }
 
             WorkoutType.Repetitions -> {
-                val work = min(budgetMeters * REPETITION_SHARE, REPETITION_CAP_M)
+                val work = Round.blockMeters(min(budgetMeters * REPETITION_SHARE, REPETITION_CAP_M))
                 Workouts.repetitions(
                     work, paces,
                     from + "${pace(paces.repetitionSecPerKm)}/km, fully recovered between. " +
@@ -564,7 +661,7 @@ object WeekPlanner {
             }
 
             WorkoutType.Steady -> {
-                val work = min(budgetMeters * MARATHON_SHARE, MARATHON_CAP_M)
+                val work = Round.blockMeters(min(budgetMeters * MARATHON_SHARE, MARATHON_CAP_M))
                 Workouts.steady(
                     work, paces,
                     from + "${pace(paces.marathonSecPerKm)}/km, ${km(work)} continuous. " +
@@ -577,9 +674,11 @@ object WeekPlanner {
     }
 
     private fun thresholdWork(budgetMeters: Double, paces: TrainingPaces): Double =
-        (budgetMeters * THRESHOLD_SHARE)
-            .coerceAtLeast(Workouts.metersAt(paces.thresholdSecPerKm, THRESHOLD_FLOOR_MS))
-            .coerceAtMost(budgetMeters * THRESHOLD_CEILING_SHARE)
+        Round.blockMeters(
+            (budgetMeters * THRESHOLD_SHARE)
+                .coerceAtLeast(Workouts.metersAt(paces.thresholdSecPerKm, THRESHOLD_FLOOR_MS))
+                .coerceAtMost(budgetMeters * THRESHOLD_CEILING_SHARE)
+        )
 
     private fun buildLongRun(
         budget: Budget,
@@ -602,7 +701,7 @@ object WeekPlanner {
             byShare
         }
         val room = budget.meters - qualityMeters - easyDays * MIN_EASY_M
-        val meters = minOf(byShare, byHistory, room).coerceAtLeast(MIN_LONG_M)
+        val meters = Round.blockMeters(minOf(byShare, byHistory, room).coerceAtLeast(MIN_LONG_M))
 
         val reason = if (byHistory < byShare && load.longestRunMeters > 0.0) {
             "Your longest in four weeks was ${km(load.longestRunMeters)}, so this is " +

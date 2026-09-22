@@ -14,26 +14,31 @@ network socket. Nothing it records can leave the device.
   keeps running and the stretch you ran through it is inferred when the fixes come back.
 - Optionally stops the clock when you stop, and starts it again when you move off,
   saying so aloud both times.
-- Speaks your pace aloud at every kilometre, using an on-device speech engine.
+- Speaks your pace aloud at every kilometre, in English, using an on-device speech
+  engine.
 - Saves every finished run as a GPX file in a folder you pick once.
-- Lists past runs as a list, a calendar, a progress chart or your records, and shows one
-  with its trace, its pace-and-elevation graph and any records. Drag across the graph for
-  the average over any stretch — it lights up on the trace as you drag.
+- Shows past runs as a calendar with that month's runs listed under it, a progress chart
+  or your records, and shows one with its trace, its pace-and-elevation graph and any
+  records. Drag across the graph for the average over any stretch — it lights up on the
+  trace as you drag.
 - Draws the trace on an offline map, and opens it full screen to drag, pinch and
   double-tap around. A small demo map is in the APK, so that works before you supply
   one.
 - Suggests the next four weeks of training from the runs already recorded: named
   sessions, paces derived from your own best efforts, and volume that cannot ramp faster
-  than is safe. Step between weeks with the arrows, hold a day to drag it elsewhere.
-  Optionally counts back from a race date. On a fresh install it asks four questions
-  about the month before it, so the first week fits you rather than a beginner.
+  than is safe. Tap a day to see the session written out step by step. Step between weeks
+  with the arrows, hold a day to drag it elsewhere. Optionally counts back from a race
+  date. On a fresh install it asks four questions about the month before it, so the first
+  week fits you rather than a beginner.
+- Puts two bodyweight strength sessions a week beside the running, on the days that can
+  take them.
 - Backs every run up to one file you choose — and your race, your rearranged weeks and
   your starting point with them — and puts one back.
 - Survives being killed mid-run: the track is in the database, and the app offers to
   finish or continue it on next launch.
 
-Nothing is planned next. The Runs tab's four modes — list, calendar, progress, records —
-the Coach tab and the run's own screen cover what the app set out to do.
+Nothing is planned next. The Runs tab's three modes — calendar, progress, records — the
+Coach tab and the run's own screen cover what the app set out to do.
 
 ## Demo mode
 
@@ -99,6 +104,18 @@ grant and the picked map file to the installation, so neither would survive a re
 even if the backup carried them — and the map file is hundreds of megabytes you still
 have the original of. A GPX export is not a restore path either: it is a copy for other
 programs, and nothing reads it back.
+
+## The Runs tab
+
+Three modes: **Calendar**, **Progress**, **Records**. There is no flat list of every run,
+because the calendar already is one — the month's runs are listed under the grid, and
+tapping a day narrows that list to the day. A separate list was the same rows with the one
+piece of context that makes them worth reading, *when*, taken back out.
+
+Above the grid the month comes to a figure: distance at hero size, then moving time and
+average pace. Average pace was not shown anywhere before and is the thing a month of
+running actually says about you; the count of active days it replaced is the figure nobody
+opens the screen for, and it is still there in a sentence underneath.
 
 ## Records
 
@@ -213,9 +230,17 @@ behind a question mark.
 - Android 12 (API 31) or newer. Built and tested against API 35.
 - No Google Play Services. The app uses the platform `LocationManager` directly, so it
   works on a de-Googled ROM.
-- A text-to-speech engine for the voice feature. A LineageOS build without Google apps
-  may have none; install **eSpeak NG** or **RHVoice** from F-Droid. Without one, runs
-  still record normally and the voice simply stays off.
+- A text-to-speech engine for the voice feature, with an **English** voice. A LineageOS
+  build without Google apps may have none; install **eSpeak NG** or **RHVoice** from
+  F-Droid. Without one, runs still record normally and the voice simply stays off.
+
+  English specifically, whatever the phone's language is set to. Every announcement in
+  this app exists only in English, so following the system locale meant a French phone
+  picking a French voice and then being handed "average pace 5 minutes 12 seconds per
+  kilometre" — an English sentence read with French phonemes, which is neither language
+  and close to unintelligible at a run. `SPEECH_LOCALE` pins both ends of it: the strings
+  are read out of English resources and the engine is asked for an English voice. The day
+  the app ships a second language, both move together.
 
 ## Building
 
@@ -360,6 +385,48 @@ often than it over-reads it, and easy is the mistake you recover from on the nex
 cruise intervals, intervals, hill repeats, fartlek, strides and repetitions. Which two a
 week gets rotates on the week number, so the plan varies without ever being random —
 the same history always produces the same week, which is what lets the tests assert one.
+
+**Tap a day to see the session written out.** Warm-up, every rep, the jog between them
+and the cool-down, in the order they are run, with the target and the pace band on each.
+It is the same component the record screen uses mid-run with the current step lit, so a
+session read on Monday and run on Thursday cannot be worded two different ways.
+
+**Every figure is one a runner can hit.** The arithmetic divides budgets by rep counts and
+lands on 913 m and 6.31 km; both are honest and neither is a prescription. So `Round`
+snaps rep distances to 50 m, block distances to 100 m and any duration that fell out of a
+division to a whole minute — once, when the session is built, not when it is printed, so
+the card and the rep the app counts you through are the same number. A duration somebody
+chose, like a twenty-second stride, is left alone: rounding that would be rewriting the
+session rather than tidying it.
+
+Alongside that, a session's total is now the sum of the sequence it is actually run in,
+taken from `WorkoutSegments` rather than assembled by hand in each builder. The segment
+list is what the recorder counts through, so deriving the total from it is the only way
+the two cannot drift apart. `WorkoutRoundingTest` asserts both properties over every
+session type at a spread of budgets, so a session added later fails the build rather than
+quietly shipping a 913 m rep.
+
+**Two strength sessions a week.** Bodyweight, no equipment, fifteen or twenty minutes:
+squats, split squats, calf raises, glute bridges and a plank one week; single-leg
+deadlifts, side planks, step-ups and hip work the next. They carry no distance at all,
+which is the whole design — they can never compete with the volume budget, shorten a run
+to make room for themselves, or be mistaken for something to record. A runner who traded
+three kilometres of easy running for a set of squats would have made themselves weaker.
+
+They go on rest days first, and never the day before anything hard: loaded legs are slow
+legs for about a day, and a tempo run on them is a tempo run at the wrong pace. A week
+with six running days has no room left for that, so the fallback puts the strength work
+*on* a hard day, after the running — hard days hard is a worse-looking plan and a
+better-recovered runner. Race week gets one, not two.
+
+**The week header is the week, not a summary of it.** Arrows, the dates, and any warning
+about a rearrangement. The paragraph restating the week's total that used to sit under it
+was the one thing on the screen nobody read: the seven cards immediately below each carry
+their own distance.
+
+**The VDOT is hidden.** It is a number with no use at the point of reading it — it does not
+tell you how to run today, and a low one reads as a verdict. The paces it was ever for are
+the card; tap the card and the number appears beside where it came from.
 
 **Four weeks are planned, one shown at a time.** Arrows step between them. Each week
 after the first is planned against a history

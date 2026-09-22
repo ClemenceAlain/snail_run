@@ -10,6 +10,7 @@ import io.snailrun.domain.coach.WorkoutCueConfig
 import io.snailrun.domain.coach.WorkoutCursor
 import io.snailrun.domain.coach.WorkoutProgress
 import io.snailrun.domain.coach.WorkoutScheduler
+import io.snailrun.domain.coach.WorkoutSegment
 import io.snailrun.domain.coach.WorkoutSegments
 import io.snailrun.domain.coach.WorkoutType
 import io.snailrun.domain.geo.TrackSmoother
@@ -48,6 +49,14 @@ sealed interface RecordingState {
         /** Where the runner is in a structured session, or null for an ordinary run. */
         val workout: WorkoutProgress? = null,
         val workoutType: WorkoutType? = null,
+        /**
+         * The whole session, unrolled, so the screen can show what is still to come.
+         *
+         * Carried alongside the progress rather than looked up again: after a crash the
+         * segments come back from the database and the armed [Workout] is long gone, so
+         * this is the only place the full sequence still exists.
+         */
+        val workoutSegments: List<WorkoutSegment> = emptyList(),
     ) : RecordingState {
         val isPaused: Boolean
             get() = metrics.status == RunStatus.PAUSED_MANUAL ||
@@ -451,6 +460,7 @@ class RunRecorder(
                 metrics.distanceMeters,
             ),
             workoutType = workoutType,
+            workoutSegments = workout?.segments.orEmpty(),
         )
     }
 }

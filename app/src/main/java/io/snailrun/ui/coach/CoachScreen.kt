@@ -1,6 +1,5 @@
 package io.snailrun.ui.coach
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
@@ -13,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Icon
@@ -49,8 +49,10 @@ import io.snailrun.domain.coach.WorkoutStep
 import io.snailrun.domain.coach.WorkoutType
 import io.snailrun.R
 import io.snailrun.ui.components.HelpButton
+import io.snailrun.ui.components.SessionSheet
 import io.snailrun.ui.components.SnailCard
 import io.snailrun.ui.format.RunFormat
+import io.snailrun.ui.format.SessionFormat
 import io.snailrun.ui.theme.SnailType
 import io.snailrun.ui.theme.Spacing
 import java.time.LocalDate
@@ -79,8 +81,11 @@ private val CoachHelp = listOf(
         "the rearrangement is remembered — the plan itself is worked out afresh every " +
         "time, from your runs.",
     "Volume rises at most a tenth on last week and never past 1.3 times your four-week " +
-        "average. The long run cannot grow more than a tenth either. Tap a day for why " +
-        "it is the length it is.",
+        "average. The long run cannot grow more than a tenth either. Tap a day to see " +
+        "the session written out and why it is the length it is.",
+    "Two strength sessions a week sit beside the running rather than instead of it. " +
+        "They carry no distance, so they never cost you a kilometre, and they are kept " +
+        "off the day before anything hard.",
 )
 
 private val PacesHelp = listOf(
@@ -109,6 +114,29 @@ fun CoachScreen(
     if (!state.loaded || plan == null) {
         Box(modifier.fillMaxSize())
         return
+    }
+
+    plan.days.firstOrNull { it.date == state.expanded }?.let { day ->
+        SessionSheet(
+            workout = if (day.workout.type == WorkoutType.Rest && day.strength != null) {
+                day.strength
+            } else {
+                day.workout
+            },
+            onDismiss = { onExpand(day.date) },
+            subtitle = dayformat().format(day.date),
+            // A rest day with strength on it has the strength as its only content, so it
+            // is promoted rather than shown under an empty "Rest".
+            strength = day.strength.takeIf { day.workout.type != WorkoutType.Rest },
+            action = if (day.workout.type != WorkoutType.Rest) {
+                "Run this" to {
+                    onExpand(day.date)
+                    onRunSession(day.workout)
+                }
+            } else {
+                null
+            },
+        )
     }
 
     LazyColumn(
@@ -167,10 +195,8 @@ fun CoachScreen(
             DraggableWeek(
                 plan = plan,
                 today = today,
-                expanded = state.expanded,
                 onExpand = onExpand,
                 onMove = { from, to -> onMove(plan.weekStart, from, to) },
-                onRunSession = onRunSession,
             )
         }
 
@@ -213,10 +239,8 @@ fun CoachScreen(
 private fun DraggableWeek(
     plan: WeekPlan,
     today: LocalDate,
-    expanded: LocalDate?,
     onExpand: (LocalDate) -> Unit,
     onMove: (Int, Int) -> Unit,
-    onRunSession: (Workout) -> Unit,
 ) {
     val heights = remember(plan.weekStart) { mutableStateMapOf<Int, Int>() }
     var dragFrom by remember(plan.weekStart) { mutableIntStateOf(-1) }
@@ -250,11 +274,7 @@ private fun DraggableWeek(
             DayRow(
                 day = day,
                 today = today,
-                // Collapsed while anything in the week is being dragged: a card that
-                // changes height mid-drag moves the ground under the finger.
-                expanded = !dragging && expanded == day.date,
                 lifted = isDragged,
-                onRunSession = onRunSession,
                 onClick = {
                     if (swallowClick) swallowClick = false else onExpand(day.date)
                 },
@@ -384,25 +404,9 @@ private fun WeekBar(
             )
         }
 
-        Spacer(Modifier.height(Spacing.m))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = plan.note,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f).padding(end = Spacing.s),
-            )
-            Text(
-                text = km(plan.plannedMeters),
-                style = SnailType.metricSmall,
-                maxLines = 1,
-                softWrap = false,
-            )
-        }
+        // No note and no weekly total. The week is seven cards immediately below, each
+        // with its own distance on it, and a paragraph restating their sum was the one
+        // thing on this screen nobody read.
 
         plan.conflicts.forEach { warning ->
             Spacer(Modifier.height(Spacing.s))
@@ -472,9 +476,7 @@ private fun RaceCard(plan: WeekPlan, state: CoachUiState) {
 private fun DayRow(
     day: PlannedDay,
     today: LocalDate,
-    expanded: Boolean,
     lifted: Boolean,
-    onRunSession: (Workout) -> Unit,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -538,25 +540,26 @@ private fun DayRow(
             }
         }
 
-        AnimatedVisibility(visible = expanded) {
-            Column {
-                Spacer(Modifier.height(Spacing.m))
-                day.workout.steps.forEach { step ->
-                    Text(
-                        text = describe(step),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = content,
-                    )
-                }
-                Spacer(Modifier.height(Spacing.s))
-                Text(
-                    text = day.workout.reason,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+        // Second line, never a second card. The strength session sits beside the day's
+        // running rather than instead of it, and giving it a card of its own would make
+        // a seven-day week look like a nine-day one.
+        day.strength?.let { strength ->
+            Spacer(Modifier.height(Spacing.s))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(Modifier.width(40.dp))
+                Icon(
+                    painter = painterResource(R.drawable.ic_snail),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.size(14.dp),
                 )
-                if (!rest) {
-                    TextButton(onClick = { onRunSession(day.workout) }) { Text("Run this") }
-                }
+                Spacer(Modifier.width(Spacing.s))
+                Text(
+                    text = "${strength.name} · ${strength.steps.size} exercises" +
+                        (SessionFormat.estimate(strength)?.let { ", $it" } ?: ""),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
             }
         }
     }
@@ -583,17 +586,27 @@ private fun FitnessCard(state: CoachUiState) {
             return@SnailCard
         }
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        // "37 VDOT" is a number with no use at the point of reading it: it does not tell
+        // you how to run today, and a low one reads as a verdict. The paces underneath
+        // are what it was ever for. It stays one tap away for anyone who wants it.
+        var showVdot by remember { mutableStateOf(false) }
+        Row(
+            modifier = Modifier.clickable { showVdot = !showVdot },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(
-                text = "Fitness ${fitness.vdot.roundToInt()} VDOT",
+                text = "Your paces",
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.weight(1f),
             )
             HelpButton(title = "Paces", body = PacesHelp)
         }
         Text(
-            text = "From your ${distanceName(fitness.fromDistanceM)} on " +
-                dayformat().format(fitness.fromDate),
+            text = buildString {
+                append("From your ${distanceName(fitness.fromDistanceM)} on ")
+                append(dayformat().format(fitness.fromDate))
+                if (showVdot) append(" · ${fitness.vdot.roundToInt()} VDOT")
+            },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -643,34 +656,18 @@ private fun PaceLine(label: String, value: String) {
 
 // ---- text ----------------------------------------------------------------------------
 
-/** One line under the session name: what it is, before it is expanded. */
+/** One line under the session name: what it is, before the sheet is opened. */
 private fun summaryOf(day: PlannedDay): String {
     val work = day.workout.steps.firstOrNull { it.repeats > 1 }
-    if (work != null) return describe(work)
+    if (work != null) return SessionFormat.step(work)
     val pace = day.workout.steps.firstOrNull()?.paceSecPerKm ?: return ""
-    return paceText(pace)
+    return SessionFormat.pace(pace)
 }
 
-private fun describe(step: WorkoutStep): String = buildString {
-    if (step.repeats > 1) append("${step.repeats} × ")
-    when {
-        step.distanceM != null && step.repeats > 1 -> append("${step.distanceM.roundToInt()}${NBSP}m")
-        step.durationMs != null -> append("${(step.durationMs / 60_000.0).roundToInt()}${NBSP}min")
-        step.distanceM != null -> append(km(step.distanceM))
-    }
-    append(" ")
-    append(step.label.lowercase())
-    step.paceSecPerKm?.let { append(" at ${paceText(it)}") }
-}
-
-private fun paceText(range: ClosedFloatingPointRange<Double>): String =
-    if (range.start == range.endInclusive) {
-        "${RunFormat.pace(range.start)}$NBSP/km"
-    } else {
-        "${RunFormat.pace(range.start)}–${RunFormat.pace(range.endInclusive)}$NBSP/km"
-    }
-
-private fun km(meters: Double): String = "${RunFormat.distanceKm(meters)}${NBSP}km"
+// One decimal, not two. A prescribed distance is a decision and the coach never makes
+// one to the metre, so "6.3 km" is the whole of what it has to say; "6.31 km" claims a
+// precision the plan does not have.
+private fun km(meters: Double): String = SessionFormat.kmWithUnit(meters)
 
 private fun weekRange(start: LocalDate): String =
     "${rangeformat().format(start)} – ${rangeformat().format(start.plusDays(6))}"

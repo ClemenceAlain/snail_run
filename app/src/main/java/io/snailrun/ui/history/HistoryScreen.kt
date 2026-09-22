@@ -13,13 +13,18 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import io.snailrun.R
 import io.snailrun.data.db.RunEntity
 import io.snailrun.data.repo.SOURCE_DEMO
 import io.snailrun.ui.components.SnailCard
@@ -56,7 +61,6 @@ fun HistoryScreen(
     }
 
     val runs = when (state.mode) {
-        HistoryMode.List -> state.runs
         HistoryMode.Calendar -> state.visibleRuns
         // The chart is the answer in progress mode; a list under it would only repeat
         // the bars in words. Records are their own list, of distances rather than runs.
@@ -138,7 +142,7 @@ fun HistoryScreen(
     }
 }
 
-/** Two words, not icons: the difference between a list and a calendar is worth saying. */
+/** Words, not icons: the difference between a calendar and a chart is worth saying. */
 @Composable
 private fun ModeToggle(mode: HistoryMode, onSetMode: (HistoryMode) -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
@@ -278,6 +282,13 @@ private fun EmptyHistory(modifier: Modifier = Modifier) {
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                painter = painterResource(R.drawable.ic_snail),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.outlineVariant,
+                modifier = Modifier.size(64.dp),
+            )
+            Spacer(Modifier.height(Spacing.l))
             Text(
                 text = "No runs yet",
                 style = MaterialTheme.typography.headlineSmall,

@@ -20,6 +20,7 @@ enum class WorkoutType(val label: String) {
     Hills("Hill repeats"),
     Fartlek("Fartlek"),
     Repetitions("Repetitions"),
+    Strength("Strength"),
     ;
 
     /**
@@ -28,9 +29,16 @@ enum class WorkoutType(val label: String) {
      * Strides are not on this list on purpose. Six twenty-second accelerations inside an
      * easy run are a reminder of what fast feels like, not a workout, and treating them
      * as one would cost a runner a quality day they never spent.
+     *
+     * Nor is strength. It is hard, but it is hard in a way that does not compete with a
+     * tempo for the same recovery, and marking it quality would push a running session
+     * out of the week to make room for a set of squats.
      */
     val isQuality: Boolean
         get() = this in setOf(Steady, Tempo, CruiseIntervals, Intervals, Hills, Fartlek, Repetitions)
+
+    /** Whether this is something you leave the house to record. Strength is not. */
+    val isRun: Boolean get() = this != Rest && this != Strength
 }
 
 /**
@@ -55,6 +63,15 @@ data class WorkoutStep(
     val recoveryMs: Long? = null,
     val recoveryM: Double? = null,
     val recoveryPaceSecPerKm: ClosedFloatingPointRange<Double>? = null,
+    /**
+     * Repetitions inside a set, for strength work: the 12 in "3 × 12 squats".
+     *
+     * A third counting dimension beside distance and duration, because a squat is
+     * measured in neither. Null everywhere else.
+     */
+    val countPerSet: Int? = null,
+    /** Counted per leg or per side, so the set is really twice what it says. */
+    val perSide: Boolean = false,
 )
 
 data class Workout(
@@ -73,7 +90,13 @@ data class Workout(
      * quietly allow half as much again.
      */
     val qualityMeters: Double = 0.0,
-)
+    /** Roughly how long it takes, for a session measured in neither pace nor distance. */
+    val estimatedMs: Long? = null,
+    /** A name for this particular session, where the type's label is too coarse. */
+    val title: String? = null,
+) {
+    val name: String get() = title ?: type.label
+}
 
 /**
  * Builds a session from a pace and a metres budget.
@@ -81,48 +104,64 @@ data class Workout(
  * Warm-up and cool-down are steps like any other and count towards [Workout.totalMeters].
  * A session whose total counts only the fast part under-reports the week by five or six
  * kilometres, and the weekly cap is the thing standing between a runner and an injury.
+ *
+ * Two rules hold throughout, and both exist so that what the plan says and what the app
+ * counts the runner through are the same thing:
+ *
+ * - **Every distance and every derived duration is rounded once, here** — see [Round].
+ *   Rounding at the point of display instead would leave a card reading "900 m" above a
+ *   rep that ends at 913.
+ * - **[Workout.totalMeters] is the sum of the session as it is actually run**, measured by
+ *   [metersOf] rather than assembled by hand in each builder. Every builder used to add up
+ *   its own total, which is four lines of arithmetic per session that nobody re-checks
+ *   when a rep count changes — and which the jog between reps quietly slipped out of more
+ *   than once.
  */
 object Workouts {
 
     fun rest(reason: String) = Workout(WorkoutType.Rest, 0.0, emptyList(), reason)
 
-    fun easy(meters: Double, paces: TrainingPaces, reason: String) = Workout(
+    fun easy(meters: Double, paces: TrainingPaces, reason: String) = build(
         type = WorkoutType.Easy,
-        totalMeters = meters,
-        steps = listOf(WorkoutStep("Easy", distanceM = meters, paceSecPerKm = paces.easySecPerKm)),
+        steps = listOf(
+            WorkoutStep("Easy", distanceM = Round.blockMeters(meters), paceSecPerKm = paces.easySecPerKm)
+        ),
         reason = reason,
     )
 
-    fun recovery(meters: Double, paces: TrainingPaces, reason: String) = Workout(
+    fun recovery(meters: Double, paces: TrainingPaces, reason: String) = build(
         type = WorkoutType.Recovery,
-        totalMeters = meters,
         steps = listOf(
             // The slow end of easy, and only the slow end. A recovery run run at the fast
             // end of easy is an easy run, and the day it was meant to repair is gone.
             WorkoutStep(
                 "Very easy",
-                distanceM = meters,
+                distanceM = Round.blockMeters(meters),
                 paceSecPerKm = paces.easySecPerKm.endInclusive..(paces.easySecPerKm.endInclusive + 30.0),
             )
         ),
         reason = reason,
     )
 
-    fun longRun(meters: Double, paces: TrainingPaces, reason: String) = Workout(
+    fun longRun(meters: Double, paces: TrainingPaces, reason: String) = build(
         type = WorkoutType.Long,
-        totalMeters = meters,
-        steps = listOf(WorkoutStep("Easy", distanceM = meters, paceSecPerKm = paces.easySecPerKm)),
+        steps = listOf(
+            WorkoutStep("Easy", distanceM = Round.blockMeters(meters), paceSecPerKm = paces.easySecPerKm)
+        ),
         reason = reason,
     )
 
     /** Easy for two thirds, marathon pace for the last third. A long run's cheap upgrade. */
     fun progression(meters: Double, paces: TrainingPaces, reason: String): Workout {
-        val fast = meters / 3.0
-        return Workout(
+        val fast = Round.blockMeters(meters / 3.0)
+        return build(
             type = WorkoutType.Progression,
-            totalMeters = meters,
             steps = listOf(
-                WorkoutStep("Easy", distanceM = meters - fast, paceSecPerKm = paces.easySecPerKm),
+                WorkoutStep(
+                    "Easy",
+                    distanceM = Round.blockMeters(meters - fast),
+                    paceSecPerKm = paces.easySecPerKm,
+                ),
                 WorkoutStep("Finish steady", distanceM = fast, paceSecPerKm = single(paces.marathonSecPerKm)),
             ),
             reason = reason,
@@ -131,13 +170,17 @@ object Workouts {
 
     fun strides(meters: Double, paces: TrainingPaces, reason: String): Workout {
         val reps = 6
+        // Twenty seconds because somebody chose twenty, so it is not rounded: see [Round].
         val strideMs = 20_000L
         val strideMeters = metersAt(paces.repetitionSecPerKm, strideMs) * reps
-        return Workout(
+        return build(
             type = WorkoutType.Strides,
-            totalMeters = meters,
             steps = listOf(
-                WorkoutStep("Easy", distanceM = meters - strideMeters, paceSecPerKm = paces.easySecPerKm),
+                WorkoutStep(
+                    "Easy",
+                    distanceM = Round.blockMeters(meters - strideMeters),
+                    paceSecPerKm = paces.easySecPerKm,
+                ),
                 WorkoutStep(
                     "Strides, walk back between",
                     repeats = reps,
@@ -151,14 +194,14 @@ object Workouts {
 
     /** Continuous at marathon pace: the closest thing to race rehearsal that is not a race. */
     fun steady(workMeters: Double, paces: TrainingPaces, reason: String): Workout {
-        val trim = trimFor(workMeters)
-        return Workout(
+        val work = Round.blockMeters(workMeters)
+        val trim = trimFor(work)
+        return build(
             type = WorkoutType.Steady,
-            totalMeters = workMeters + 2 * trim,
-            qualityMeters = workMeters,
+            qualityMeters = work,
             steps = listOf(
                 warmUp(trim, paces),
-                WorkoutStep("Steady", distanceM = workMeters, paceSecPerKm = single(paces.marathonSecPerKm)),
+                WorkoutStep("Steady", distanceM = work, paceSecPerKm = single(paces.marathonSecPerKm)),
                 coolDown(trim, paces),
             ),
             reason = reason,
@@ -175,13 +218,13 @@ object Workouts {
      * right answer there is a shorter one, not a bigger week.
      */
     fun tempo(workMeters: Double, paces: TrainingPaces, reason: String): Workout {
-        val duration = durationAt(paces.thresholdSecPerKm, workMeters)
-            .coerceIn(12 * 60_000L, 40 * 60_000L)
-        val meters = metersAt(paces.thresholdSecPerKm, duration)
+        val duration = Round.stepMs(
+            durationAt(paces.thresholdSecPerKm, workMeters).coerceIn(12 * 60_000L, 40 * 60_000L)
+        )
+        val meters = Round.blockMeters(metersAt(paces.thresholdSecPerKm, duration))
         val trim = trimFor(meters)
-        return Workout(
+        return build(
             type = WorkoutType.Tempo,
-            totalMeters = meters + 2 * trim,
             qualityMeters = meters,
             steps = listOf(
                 warmUp(trim, paces),
@@ -208,14 +251,12 @@ object Workouts {
     fun cruiseIntervals(workMeters: Double, paces: TrainingPaces, reason: String): Workout {
         val totalMs = durationAt(paces.thresholdSecPerKm, workMeters)
         val reps = (totalMs / (5 * 60_000L)).toInt().coerceIn(3, 6)
-        val repMs = totalMs / reps
-        val repMeters = metersAt(paces.thresholdSecPerKm, repMs)
-        val meters = repMeters * reps
-        val trim = trimFor(meters)
-        return Workout(
+        val repMs = Round.stepMs(totalMs / reps)
+        val repMeters = Round.repMeters(metersAt(paces.thresholdSecPerKm, repMs))
+        val trim = trimFor(repMeters * reps)
+        return build(
             type = WorkoutType.CruiseIntervals,
-            totalMeters = meters + reps * metersAt(paces.easySecPerKm.endInclusive, 2 * 60_000L) + 2 * trim,
-            qualityMeters = meters,
+            qualityMeters = repMeters * reps,
             steps = listOf(
                 warmUp(trim, paces),
                 WorkoutStep(
@@ -237,15 +278,12 @@ object Workouts {
     fun intervals(workMeters: Double, paces: TrainingPaces, reason: String): Workout {
         val totalMs = durationAt(paces.intervalSecPerKm, workMeters)
         val reps = (totalMs / (3 * 60_000L)).toInt().coerceIn(4, 6)
-        val repMs = totalMs / reps
-        val repMeters = metersAt(paces.intervalSecPerKm, repMs)
-        val meters = repMeters * reps
-        val trim = trimFor(meters)
-        return Workout(
+        val repMs = Round.stepMs(totalMs / reps)
+        val repMeters = Round.repMeters(metersAt(paces.intervalSecPerKm, repMs))
+        val trim = trimFor(repMeters * reps)
+        return build(
             type = WorkoutType.Intervals,
-            // The jog is at the slow end of easy and is real distance on the legs.
-            totalMeters = meters + reps * metersAt(paces.easySecPerKm.endInclusive, repMs) + 2 * trim,
-            qualityMeters = meters,
+            qualityMeters = repMeters * reps,
             steps = listOf(
                 warmUp(trim, paces),
                 WorkoutStep(
@@ -274,20 +312,25 @@ object Workouts {
      */
     fun hills(workMeters: Double, paces: TrainingPaces, reason: String): Workout {
         val repMs = 45_000L
-        val repMeters = metersAt(paces.intervalSecPerKm, repMs)
+        val repMeters = Round.repMeters(metersAt(paces.intervalSecPerKm, repMs))
         val reps = (workMeters / repMeters).toInt().coerceIn(4, 10)
-        val meters = repMeters * reps
-        val trim = trimFor(meters)
-        return Workout(
+        val trim = trimFor(repMeters * reps)
+        return build(
             type = WorkoutType.Hills,
-            totalMeters = meters * 2 + 2 * trim,
-            qualityMeters = meters,
+            qualityMeters = repMeters * reps,
             steps = listOf(
                 warmUp(trim, paces),
                 WorkoutStep(
                     "Uphill hard, jog down",
                     repeats = reps,
                     durationMs = repMs,
+                    // Carried but never shown and never enforced: the step is prescribed
+                    // in time and has no pace band on purpose — a pace up a hill is the
+                    // gradient's decision, not the runner's. The distance is only what
+                    // that time is expected to cover, and it is here because it is the
+                    // one session whose work the week cannot otherwise count: with no
+                    // band to price the minutes at, the uphills would weigh nothing.
+                    distanceM = repMeters,
                     // The way down is the way up, so the jog is a distance and not a
                     // time: how long it takes is the runner's business.
                     recoveryM = repMeters,
@@ -301,14 +344,12 @@ object Workouts {
 
     fun fartlek(workMeters: Double, paces: TrainingPaces, reason: String): Workout {
         val repMs = 60_000L
-        val repMeters = metersAt(paces.intervalSecPerKm, repMs)
+        val repMeters = Round.repMeters(metersAt(paces.intervalSecPerKm, repMs))
         val reps = (workMeters / repMeters).toInt().coerceIn(4, 10)
-        val meters = repMeters * reps
-        val trim = trimFor(meters)
-        return Workout(
+        val trim = trimFor(repMeters * reps)
+        return build(
             type = WorkoutType.Fartlek,
-            totalMeters = meters + reps * metersAt(paces.easySecPerKm.endInclusive, repMs) + 2 * trim,
-            qualityMeters = meters,
+            qualityMeters = repMeters * reps,
             steps = listOf(
                 warmUp(trim, paces),
                 WorkoutStep(
@@ -331,9 +372,8 @@ object Workouts {
         val reps = (workMeters / repMeters).toInt().coerceIn(4, 10)
         val meters = repMeters * reps
         val trim = trimFor(meters * 2)
-        return Workout(
+        return build(
             type = WorkoutType.Repetitions,
-            totalMeters = meters + reps * 400.0 + 2 * trim,
             qualityMeters = meters,
             steps = listOf(
                 warmUp(trim, paces),
@@ -351,6 +391,61 @@ object Workouts {
         )
     }
 
+    /**
+     * Assembles a session and prices it from the sequence it will actually be run in.
+     *
+     * The two-step construction is the point: [WorkoutSegments] takes a [Workout], so the
+     * total cannot be known until the steps are wrapped in one. The draft exists for
+     * exactly as long as it takes to measure it.
+     */
+    private fun build(
+        type: WorkoutType,
+        steps: List<WorkoutStep>,
+        reason: String,
+        qualityMeters: Double = 0.0,
+    ): Workout {
+        val draft = Workout(type, 0.0, steps, reason, qualityMeters)
+        return draft.copy(totalMeters = metersOf(draft))
+    }
+
+    /**
+     * What the session covers, counting every rep and every jog the runner will run.
+     *
+     * Read off the steps rather than off [WorkoutSegments], which is where this started
+     * and where it was wrong: a segment keeps only the dimension it is governed by, so a
+     * step prescribed in time loses its distance on the way through. Hill repeats are
+     * prescribed in time *and* carry no pace band, which left nothing at all to price
+     * them from — the week was counting a hill session at its warm-up and its jogs.
+     *
+     * The two rules [WorkoutSegments] applies are applied here too, because what is being
+     * measured is the session as the recorder will count it:
+     *
+     * - a step's own distance wins where it has one, and a distance is inferred from the
+     *   time and the middle of the pace band only where it does not;
+     * - the jog is counted between the reps and not after the last one, which is the
+     *   trailing recovery the segment list drops.
+     */
+    fun metersOf(workout: Workout): Double = workout.steps.sumOf { step ->
+        val repeats = step.repeats.coerceAtLeast(1)
+        val work = step.distanceM
+            ?: step.durationMs?.let { metersAt(midpoint(step.paceSecPerKm), it) }
+            ?: 0.0
+        val recovery = step.recoveryM
+            ?: step.recoveryMs?.let { metersAt(midpoint(step.recoveryPaceSecPerKm), it) }
+            ?: 0.0
+        work * repeats + recovery * (repeats - 1)
+    }
+
+    /**
+     * A band's middle, for turning a duration into a distance.
+     *
+     * A band rather than a pace is an easy run or a jog, and a runner inside one is on
+     * average in the middle of it. Taking either end instead would bias every weekly
+     * total in the same direction, week after week.
+     */
+    private fun midpoint(range: ClosedFloatingPointRange<Double>?): Double =
+        if (range == null) 0.0 else (range.start + range.endInclusive) / 2.0
+
     private fun warmUp(meters: Double, paces: TrainingPaces) =
         WorkoutStep("Warm up", distanceM = meters, paceSecPerKm = paces.easySecPerKm)
 
@@ -358,7 +453,8 @@ object Workouts {
         WorkoutStep("Cool down", distanceM = meters, paceSecPerKm = paces.easySecPerKm)
 
     /** Warm-up and cool-down scale with the session, within reason. */
-    private fun trimFor(workMeters: Double): Double = (workMeters * 0.5).coerceIn(1_200.0, 2_500.0)
+    private fun trimFor(workMeters: Double): Double =
+        Round.blockMeters((workMeters * 0.5).coerceIn(1_200.0, 2_500.0))
 
     fun metersAt(paceSecPerKm: Double, durationMs: Long): Double =
         if (paceSecPerKm <= 0.0) 0.0 else durationMs / 1000.0 / paceSecPerKm * 1000.0

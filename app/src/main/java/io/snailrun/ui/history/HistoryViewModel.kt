@@ -26,7 +26,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
-enum class HistoryMode { List, Calendar, Progress, Records }
+/**
+ * There is no plain list.
+ *
+ * The calendar already puts the month's runs in a list underneath it, and tapping a day
+ * narrows that list to the day. A separate flat list of every run ever was the same rows
+ * with the one useful piece of context — when, relative to everything else — taken out.
+ */
+enum class HistoryMode { Calendar, Progress, Records }
 
 /**
  * The best time over one distance, across every run.
@@ -44,7 +51,7 @@ data class DistanceRecord(
 private const val PROGRESS_BUCKETS = 12
 
 data class HistoryUiState(
-    val mode: HistoryMode = HistoryMode.List,
+    val mode: HistoryMode = HistoryMode.Calendar,
     val runs: List<RunEntity> = emptyList(),
     val month: CalendarMonth? = null,
     val selectedDate: LocalDate? = null,

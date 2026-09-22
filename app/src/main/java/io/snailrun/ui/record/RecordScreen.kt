@@ -26,24 +26,34 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.clickable
 import io.snailrun.domain.coach.SegmentKind
 import io.snailrun.domain.coach.Workout
 import io.snailrun.domain.coach.WorkoutProgress
+import io.snailrun.domain.coach.WorkoutSegment
+import io.snailrun.domain.coach.WorkoutType
 import io.snailrun.domain.model.GpsQuality
 import io.snailrun.domain.model.RunStatus
 import io.snailrun.tracking.RecordingState
 import io.snailrun.ui.components.MetricReadout
+import io.snailrun.ui.components.SessionDetail
+import io.snailrun.ui.components.SessionSheet
 import io.snailrun.ui.components.SnailCard
+import io.snailrun.ui.format.NBSP
 import io.snailrun.ui.format.RunFormat
+import io.snailrun.ui.format.SessionFormat
 import io.snailrun.ui.theme.SnailType
 import io.snailrun.ui.theme.Spacing
 import kotlin.math.roundToInt
@@ -63,12 +73,27 @@ fun RecordScreen(
     onFinish: () -> Unit,
     modifier: Modifier = Modifier,
     todaysSession: Workout? = null,
+    todaysStrength: Workout? = null,
     armedSession: Workout? = null,
     onArmSession: (Workout?) -> Unit = {},
     onNextSegment: () -> Unit = {},
     onEndSession: () -> Unit = {},
 ) {
     val active = state as? RecordingState.Active
+
+    // One sheet for the whole screen, whichever card opened it. The session being run
+    // and the session being considered are the same thing said at two different moments,
+    // and they read better as one component than as two that have to be kept in step.
+    var detail by remember { mutableStateOf<SessionDetailRequest?>(null) }
+    detail?.let { request ->
+        SessionSheet(
+            workout = request.workout,
+            onDismiss = { detail = null },
+            segments = request.segments,
+            currentSegment = request.currentSegment,
+            subtitle = request.subtitle,
+        )
+    }
 
     Column(
         modifier = modifier
@@ -88,13 +113,38 @@ fun RecordScreen(
         Spacer(Modifier.height(Spacing.l))
 
         if (active?.workout != null) {
-            SessionPanel(progress = active.workout, onNext = onNextSegment, onEnd = onEndSession)
+            SessionPanel(
+                progress = active.workout,
+                onNext = onNextSegment,
+                onEnd = onEndSession,
+                onShowDetail = {
+                    detail = SessionDetailRequest(
+                        // The workout itself is gone by now — see the comment on
+                        // RecordingState.Active.workoutSegments — so the sheet is given
+                        // the sequence directly and a shell to title it with.
+                        workout = Workout(
+                            type = active.workoutType ?: WorkoutType.Easy,
+                            totalMeters = 0.0,
+                            steps = emptyList(),
+                            reason = "",
+                        ),
+                        segments = active.workoutSegments,
+                        currentSegment = active.workout.segment.index,
+                        subtitle = "step ${active.workout.segmentsDone + 1} of " +
+                            "${active.workout.segmentCount}",
+                    )
+                },
+            )
             Spacer(Modifier.height(Spacing.l))
-        } else if (active == null && todaysSession != null) {
+        } else if (active == null && (todaysSession != null || todaysStrength != null)) {
             TodaysSession(
                 session = todaysSession,
+                strength = todaysStrength,
                 armed = armedSession != null,
                 onArm = { onArmSession(if (armedSession == null) todaysSession else null) },
+                onShowDetail = { workout ->
+                    detail = SessionDetailRequest(workout = workout)
+                },
             )
             Spacer(Modifier.height(Spacing.l))
         }
@@ -140,14 +190,32 @@ fun RecordScreen(
     }
 }
 
+/** What the sheet at the top of this screen is currently showing. */
+private data class SessionDetailRequest(
+    val workout: Workout,
+    val segments: List<WorkoutSegment>? = null,
+    val currentSegment: Int? = null,
+    val subtitle: String? = null,
+)
+
 /**
  * What the coach has down for today, before the run starts.
  *
  * Loading it is a separate press from starting, because opening the app to go for an easy
  * half hour should not mean fighting off a tempo you never asked for.
+ *
+ * The strength session, when there is one, is a line rather than a button. There is
+ * nothing to record and nothing to arm — it is here so that a rest day with twenty
+ * minutes of squats on it does not look like a rest day with nothing on it.
  */
 @Composable
-private fun TodaysSession(session: Workout, armed: Boolean, onArm: () -> Unit) {
+private fun TodaysSession(
+    session: Workout?,
+    strength: Workout?,
+    armed: Boolean,
+    onArm: () -> Unit,
+    onShowDetail: (Workout) -> Unit,
+) {
     SnailCard(
         modifier = Modifier.fillMaxWidth(),
         containerColor = if (armed) {
@@ -161,32 +229,74 @@ private fun TodaysSession(session: Workout, armed: Boolean, onArm: () -> Unit) {
         } else {
             MaterialTheme.colorScheme.onSurface
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
+
+        if (session != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onShowDetail(session) },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (armed) "Loaded: ${session.name}" else "Today: ${session.name}",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = content,
+                    )
+                    Text(
+                        text = sessionLine(session),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = content,
+                    )
+                }
+                TextButton(onClick = onArm) { Text(if (armed) "Unload" else "Load") }
+            }
+
+            // Every step of it, right here. A session is read in the thirty seconds
+            // before it starts, and asking the runner to open something to find out what
+            // they are about to do is thirty seconds they do not have.
+            //
+            // Unless there is only one step, in which case the line above has already
+            // said it and a second copy of "8.0 km easy" reads as a rendering bug.
+            if (session.steps.size > 1) {
+                Spacer(Modifier.height(Spacing.m))
+                SessionDetail(workout = session)
+            }
+        }
+
+        strength?.let { extra ->
+            if (session != null) {
+                Spacer(Modifier.height(Spacing.m))
+                HorizontalDivider()
+                Spacer(Modifier.height(Spacing.m))
+            }
+            Column(modifier = Modifier.clickable { onShowDetail(extra) }) {
                 Text(
-                    text = if (armed) "Loaded: ${session.type.label}" else "Today: ${session.type.label}",
+                    text = "Also today: ${extra.name}",
                     style = MaterialTheme.typography.titleMedium,
                     color = content,
                 )
                 Text(
-                    text = sessionLine(session),
+                    text = "${extra.steps.size} exercises" +
+                        (SessionFormat.estimate(extra)?.let { ", $it" } ?: ""),
                     style = MaterialTheme.typography.bodyMedium,
                     color = content,
                 )
             }
-            TextButton(onClick = onArm) { Text(if (armed) "Unload" else "Load") }
         }
     }
 }
 
 /** Where the runner is in the session, while they are in it. */
 @Composable
-private fun SessionPanel(progress: WorkoutProgress, onNext: () -> Unit, onEnd: () -> Unit) {
+private fun SessionPanel(
+    progress: WorkoutProgress,
+    onNext: () -> Unit,
+    onEnd: () -> Unit,
+    onShowDetail: () -> Unit,
+) {
     SnailCard(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onShowDetail),
         containerColor = when {
             progress.complete -> MaterialTheme.colorScheme.surfaceContainer
             progress.segment.kind == SegmentKind.Work -> MaterialTheme.colorScheme.primaryContainer
@@ -200,12 +310,27 @@ private fun SessionPanel(progress: WorkoutProgress, onNext: () -> Unit, onEnd: (
         }
 
         if (progress.complete) {
-            Text("Session done", style = MaterialTheme.typography.titleMedium, color = content)
-            Text(
-                text = "Keep running as long as you like.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = content,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_snail),
+                    contentDescription = null,
+                    tint = content,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.size(Spacing.s))
+                Column {
+                    Text(
+                        text = "Session done",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = content,
+                    )
+                    Text(
+                        text = "Keep running as long as you like.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = content,
+                    )
+                }
+            }
             return@SnailCard
         }
 
@@ -236,7 +361,7 @@ private fun SessionPanel(progress: WorkoutProgress, onNext: () -> Unit, onEnd: (
             // counts down; one given a distance counts down in metres.
             Text(
                 text = progress.remainingMs?.let { RunFormat.duration(it) }
-                    ?: progress.remainingM?.let { "${it.roundToInt()}\u00A0m" }
+                    ?: progress.remainingM?.let { "${it.roundToInt()}${NBSP}m" }
                     ?: "",
                 style = SnailType.metricSmall,
                 color = content,
@@ -253,6 +378,12 @@ private fun SessionPanel(progress: WorkoutProgress, onNext: () -> Unit, onEnd: (
             )
         }
 
+        Text(
+            text = "step ${progress.segmentsDone + 1} of ${progress.segmentCount} · tap for the session",
+            style = MaterialTheme.typography.labelSmall,
+            color = content,
+        )
+
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
             TextButton(onClick = onNext) { Text("NEXT") }
             TextButton(onClick = onEnd) { Text("END SESSION") }
@@ -261,20 +392,15 @@ private fun SessionPanel(progress: WorkoutProgress, onNext: () -> Unit, onEnd: (
 }
 
 private fun sessionLine(session: Workout): String {
-    val work = session.steps.firstOrNull { it.repeats > 1 }
-        ?: return "${RunFormat.distanceKm(session.totalMeters)}\u00A0km"
-    val each = work.durationMs?.let { "${(it / 60_000.0).roundToInt()}\u00A0min" }
-        ?: work.distanceM?.let { "${it.roundToInt()}\u00A0m" }
-        ?: ""
-    return "${work.repeats} × $each · ${RunFormat.distanceKm(session.totalMeters)}\u00A0km"
+    val total = SessionFormat.kmWithUnit(session.totalMeters)
+    val work = session.steps.firstOrNull { it.repeats > 1 } ?: return total
+    val each = work.durationMs?.let { SessionFormat.duration(it) }
+        ?: work.distanceM?.let { SessionFormat.distance(it) }
+        ?: return total
+    return "${work.repeats} × $each · $total"
 }
 
-private fun paceBand(range: ClosedFloatingPointRange<Double>): String =
-    if (range.start == range.endInclusive) {
-        "${RunFormat.pace(range.start)}\u00A0/km"
-    } else {
-        "${RunFormat.pace(range.start)}–${RunFormat.pace(range.endInclusive)}\u00A0/km"
-    }
+private fun paceBand(range: ClosedFloatingPointRange<Double>): String = SessionFormat.pace(range)
 
 @Composable
 private fun StatusRow(
