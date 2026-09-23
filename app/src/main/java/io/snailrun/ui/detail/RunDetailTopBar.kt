@@ -24,6 +24,8 @@ data class RunDetailActions(
     val onExport: () -> Unit,
     val onShare: () -> Unit,
     val onDelete: () -> Unit,
+    /** False for a run typed in by hand: there is no track to write a GPX file from. */
+    val canExport: Boolean = true,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -44,14 +46,16 @@ fun RunDetailTopBar(actions: RunDetailActions) {
                 Icon(painterResource(R.drawable.ic_more), contentDescription = "More")
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(
-                    text = { Text("Save GPX as…") },
-                    onClick = { menuOpen = false; actions.onExport() },
-                )
-                DropdownMenuItem(
-                    text = { Text("Share GPX") },
-                    onClick = { menuOpen = false; actions.onShare() },
-                )
+                if (actions.canExport) {
+                    DropdownMenuItem(
+                        text = { Text("Save GPX as…") },
+                        onClick = { menuOpen = false; actions.onExport() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Share GPX") },
+                        onClick = { menuOpen = false; actions.onShare() },
+                    )
+                }
                 DropdownMenuItem(
                     text = { Text("Delete run") },
                     onClick = { menuOpen = false; confirmingDelete = true },

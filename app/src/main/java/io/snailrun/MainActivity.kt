@@ -53,6 +53,7 @@ import io.snailrun.ui.components.BasemapLayer
 import io.snailrun.ui.detail.RunDetailActions
 import io.snailrun.ui.detail.RunDetailScreen
 import io.snailrun.ui.detail.RunDetailTopBar
+import io.snailrun.data.repo.SOURCE_MANUAL
 import io.snailrun.ui.detail.RunMapTopBar
 import io.snailrun.ui.detail.RunDetailViewModel
 import io.snailrun.ui.history.HistoryScreen
@@ -252,6 +253,7 @@ class MainActivity : ComponentActivity() {
             onShowMonth = viewModel::showMonth,
             onSetProgressPeriod = viewModel::setProgressPeriod,
             onTogglePaces = viewModel::togglePaces,
+            onAddRun = viewModel::addManualRun,
         )
     }
 
@@ -347,6 +349,7 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         onDelete = { viewModel.delete(runId, onBack) },
+                        canExport = state.run?.source != SOURCE_MANUAL,
                     )
                 )
             },

@@ -281,8 +281,12 @@ class TrackSmoother(private val config: Config = Config()) {
          * Bumped whenever the arithmetic changes. Runs carry the version they were
          * derived with, so improving the filter reprocesses the runs already recorded
          * instead of leaving them on the old numbers.
+         *
+         * Strictly it versions every figure derived from the stored track, not only this
+         * filter's: 3 re-derives the climb, which a vertical-accuracy gate had held at
+         * 0 m on phones that report it poorly or not at all.
          */
-        const val VERSION = 2
+        const val VERSION = 3
 
         /**
          * Smoothed positions never move far enough per fix to need a jitter floor, so

@@ -22,6 +22,13 @@ sealed interface AutoPauseEvent {
  *
  * Fed from the smoothed velocity rather than the chip's own figure, so the decision is
  * made on the same positions the distance is.
+ *
+ * Where the accelerometer has an opinion, it decides, and GPS only has to not disagree.
+ * GPS alone takes five seconds or more to believe a stop and several to believe a start,
+ * because the chip filters its speed and this class filters it again; the accelerometer
+ * knows within a second. Without one — no sensor, a demo run — the GPS rules above are
+ * the whole of it, and they stay underneath as the fallback either way: a runner jogging
+ * on the spot at a light shakes the phone like a runner, and only GPS can tell.
  */
 class AutoPauseDetector(private val config: Config = Config()) {
 
@@ -39,6 +46,16 @@ class AutoPauseDetector(private val config: Config = Config()) {
          * enough to ignore one stray fix, short enough not to delay the decision.
          */
         val speedAlpha: Double = 0.5,
+        /** Still for this long, and GPS not showing running speed: stopped. */
+        val stillForMs: Long = 1_000,
+        /**
+         * Striding for this long, and GPS showing at least [motionResumeAboveMps]: off
+         * again. The speed check is what keeps a phone taken out of a pocket from
+         * restarting the clock; the chip reads a metre a second within a stride or two
+         * of setting off.
+         */
+        val movingForMs: Long = 1_000,
+        val motionResumeAboveMps: Double = 1.0,
     )
 
     private var belowSinceMs: Long? = null
@@ -51,11 +68,22 @@ class AutoPauseDetector(private val config: Config = Config()) {
         smoothedSpeedMps = null
     }
 
-    fun onSpeed(timestampMs: Long, rawSpeedMps: Double, isAutoPaused: Boolean): AutoPauseEvent {
+    fun onSpeed(
+        timestampMs: Long,
+        rawSpeedMps: Double,
+        isAutoPaused: Boolean,
+        motion: Motion? = null,
+    ): AutoPauseEvent {
         val speedMps = smoothedSpeedMps
             ?.let { it + config.speedAlpha * (rawSpeedMps - it) }
             ?: rawSpeedMps
         smoothedSpeedMps = speedMps
+
+        motionEvent(rawSpeedMps, isAutoPaused, motion)?.let { event ->
+            belowSinceMs = null
+            aboveSinceMs = null
+            return event
+        }
 
         if (isAutoPaused) {
             belowSinceMs = null
@@ -78,5 +106,26 @@ class AutoPauseDetector(private val config: Config = Config()) {
         if (timestampMs - since < config.pauseAfterMs) return AutoPauseEvent.None
         belowSinceMs = null
         return AutoPauseEvent.Pause
+    }
+
+    /**
+     * The accelerometer's verdict, or null to leave it to GPS.
+     *
+     * The raw speed rather than the smoothed one: the point is to not wait, and a single
+     * stray fix cannot fire this on its own because the accelerometer has to agree.
+     */
+    private fun motionEvent(rawSpeedMps: Double, isAutoPaused: Boolean, motion: Motion?): AutoPauseEvent? {
+        motion ?: return null
+        return when {
+            !isAutoPaused && motion.state == MotionState.STILL &&
+                motion.heldMs >= config.stillForMs && rawSpeedMps < config.resumeAboveMps ->
+                AutoPauseEvent.Pause
+
+            isAutoPaused && motion.state == MotionState.MOVING &&
+                motion.heldMs >= config.movingForMs && rawSpeedMps >= config.motionResumeAboveMps ->
+                AutoPauseEvent.Resume
+
+            else -> null
+        }
     }
 }

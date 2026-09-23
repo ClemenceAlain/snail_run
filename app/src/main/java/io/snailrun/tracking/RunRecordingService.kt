@@ -112,8 +112,12 @@ class RunRecordingService : Service() {
 
     @SuppressLint("MissingPermission")
     private suspend fun collectFixes(demo: DemoSettings) {
+        // Not for a demo run: the phone is lying on a desk while the synthetic trace
+        // runs, and the accelerometer would pause it on the first fix.
+        val motion = container.motionSensor.takeUnless { demo.enabled }
+        motion?.start()
         container.locationSourceFor(demo).fixes().collect { fix ->
-            container.runRecorder.onFix(fix)
+            container.runRecorder.onFix(fix, motion?.current())
         }
     }
 
@@ -214,6 +218,7 @@ class RunRecordingService : Service() {
             container.runRecorder.onAnnouncement = null
             container.runRecorder.onNotice = null
             container.runRecorder.onCue = null
+            container.motionSensor.stop()
             scope.cancel()
         } finally {
             wakeLock?.takeIf { it.isHeld }?.release()

@@ -3,11 +3,16 @@ package io.snailrun.domain.coach
 import io.snailrun.domain.metrics.TrackGaps
 import io.snailrun.domain.model.TrackPoint
 
+/** How a segment's pace went against what it asked for, from the runner's side. */
+enum class PaceVerdict { OnTarget, Better, Worse }
+
 /** One segment as prescribed, beside what was actually run in it. */
 data class SegmentResult(
     val segment: WorkoutSegment,
     val actualMs: Long,
     val actualMeters: Double,
+    /** Where along the run it began, so its target can be drawn over the pace graph. */
+    val startedAtMeters: Double = 0.0,
 ) {
     val actualPaceSecPerKm: Double?
         get() = if (actualMeters < 20.0 || actualMs <= 0) null
@@ -26,6 +31,22 @@ data class SegmentResult(
         }
 
     val onTarget: Boolean get() = paceDeltaSecPerKm?.let { kotlin.math.abs(it) < 1.0 } ?: true
+
+    /**
+     * Whether a miss went the way that helps, or null where there was no target.
+     *
+     * Faster is better only on work. On a warm-up, a jog or a cool-down the point is to
+     * go easy, so running it slower than asked is fine and faster is the mistake — the
+     * one that leaves nothing for the reps.
+     */
+    val verdict: PaceVerdict?
+        get() {
+            val delta = paceDeltaSecPerKm ?: return null
+            if (onTarget) return PaceVerdict.OnTarget
+            val faster = delta < 0
+            val fasterIsBetter = segment.kind == SegmentKind.Work
+            return if (faster == fasterIsBetter) PaceVerdict.Better else PaceVerdict.Worse
+        }
 }
 
 /**
@@ -92,6 +113,7 @@ object WorkoutReview {
                 actualMs = (activeMs - cursor.segmentStartedActiveMs).coerceAtLeast(0),
                 actualMeters = (points.last().cumulativeDistanceM - cursor.segmentStartedMeters)
                     .coerceAtLeast(0.0),
+                startedAtMeters = cursor.segmentStartedMeters,
             )
         }
         return results
@@ -116,6 +138,7 @@ object WorkoutReview {
                 .coerceAtLeast(0),
             actualMeters = (after.segmentStartedMeters - before.segmentStartedMeters)
                 .coerceAtLeast(0.0),
+            startedAtMeters = before.segmentStartedMeters,
         )
         return after
     }

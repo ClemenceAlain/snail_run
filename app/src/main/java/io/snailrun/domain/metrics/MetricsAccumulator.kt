@@ -102,6 +102,7 @@ class MetricsAccumulator(
         lastPoint = last
         lastTimestampMs = null
         activeDurationMs = TrackGaps.activeDurationOf(points)
+        points.forEach { elevation.onElevation(it.elevationM) }
         status = RunStatus.PAUSED_MANUAL
         filter.reset()
         paceSmoother.reset()
@@ -179,7 +180,7 @@ class MetricsAccumulator(
                     }
                 }
                 distance += stepM
-                elevation.onFix(fix.altitudeM, fix.verticalAccuracyM)
+                elevation.onElevation(fix.altitudeM)
                 quality = qualityFor(fix.accuracyM)
 
                 val point = TrackPoint(

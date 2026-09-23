@@ -7,6 +7,8 @@ import io.snailrun.data.haptics.AndroidHaptics
 import io.snailrun.data.haptics.Haptics
 import io.snailrun.data.db.SnailDatabase
 import io.snailrun.data.location.DemoLocationSource
+import io.snailrun.data.motion.AccelerometerMotionSensor
+import io.snailrun.data.motion.MotionSensor
 import io.snailrun.data.location.LocationSource
 import io.snailrun.data.location.PlatformLocationSource
 import io.snailrun.data.prefs.DemoSettings
@@ -59,6 +61,9 @@ class AppContainer(private val context: Context) {
         } else {
             locationSource
         }
+
+    /** For auto-pause: tells a stop or a start a few seconds before GPS can. */
+    val motionSensor: MotionSensor by lazy { AccelerometerMotionSensor(context) }
 
     val basemapStore: BasemapStore by lazy { BasemapStore(context, settings) }
 

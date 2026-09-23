@@ -18,7 +18,12 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
@@ -27,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import io.snailrun.R
 import io.snailrun.data.db.RunEntity
 import io.snailrun.data.repo.SOURCE_DEMO
+import io.snailrun.data.repo.SOURCE_MANUAL
 import io.snailrun.ui.components.Badge
 import io.snailrun.ui.components.BadgeTone
 import io.snailrun.ui.components.SnailCard
@@ -57,10 +63,22 @@ fun HistoryScreen(
     onShowMonth: (Long) -> Unit,
     onSetProgressPeriod: (ProgressPeriod) -> Unit,
     onTogglePaces: () -> Unit,
+    onAddRun: (ManualRun) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var adding by rememberSaveable { mutableStateOf(false) }
+    if (adding) {
+        ManualRunDialog(
+            onDismiss = { adding = false },
+            onSave = { run ->
+                adding = false
+                onAddRun(run)
+            },
+        )
+    }
+
     if (state.runs.isEmpty()) {
-        EmptyHistory(modifier)
+        EmptyHistory(onAddRun = { adding = true }, modifier = modifier)
         return
     }
 
@@ -82,11 +100,17 @@ fun HistoryScreen(
         verticalArrangement = Arrangement.spacedBy(Spacing.m),
     ) {
         item {
-            Text(
-                text = "Runs",
-                style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.padding(bottom = Spacing.s),
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.s),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Runs",
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { adding = true }) { Text("Add a run") }
+            }
             ModeToggle(mode = state.mode, onSetMode = onSetMode)
         }
 
@@ -257,6 +281,10 @@ private fun RunRow(run: RunEntity, onClick: () -> Unit) {
                 Spacer(Modifier.size(Spacing.s))
                 Badge("Demo", BadgeTone.Long)
             }
+            if (run.source == SOURCE_MANUAL) {
+                Spacer(Modifier.size(Spacing.s))
+                Badge("Manual")
+            }
         }
 
         Spacer(Modifier.height(Spacing.l))
@@ -288,7 +316,7 @@ private fun Stat(value: String, caption: String) {
 }
 
 @Composable
-private fun EmptyHistory(modifier: Modifier = Modifier) {
+private fun EmptyHistory(onAddRun: () -> Unit, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier.fillMaxSize().padding(Spacing.section),
         contentAlignment = Alignment.Center,
@@ -312,6 +340,8 @@ private fun EmptyHistory(modifier: Modifier = Modifier) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
+            Spacer(Modifier.height(Spacing.m))
+            TextButton(onClick = onAddRun) { Text("Add a run you did without the app") }
         }
     }
 }

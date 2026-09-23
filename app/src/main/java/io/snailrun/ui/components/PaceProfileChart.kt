@@ -40,10 +40,15 @@ import kotlin.math.min
  *
  * Pace is drawn upside down: a faster pace is a smaller number, and a runner reads
  * higher as better.
+ *
+ * A guided run also draws what each step asked for, as a band behind the line over the
+ * stretch that step was run in, so "was I on pace" is read off the picture rather than
+ * worked out from the table below it.
  */
 @Composable
 fun PaceProfileChart(
     samples: List<ProfileSample>,
+    targets: List<PaceTarget> = emptyList(),
     selection: ClosedFloatingPointRange<Double>?,
     onSelectionChange: (ClosedFloatingPointRange<Double>?) -> Unit,
     modifier: Modifier = Modifier,
@@ -61,6 +66,7 @@ fun PaceProfileChart(
     val selectionColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
     val edgeColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
     val baselineColor = MaterialTheme.colorScheme.outlineVariant
+    val targetColor = MaterialTheme.colorScheme.tertiary
 
     fun metresAt(x: Float): Double =
         if (widthPx <= 0f) 0.0 else (x / widthPx).coerceIn(0f, 1f) * totalM
@@ -93,11 +99,21 @@ fun PaceProfileChart(
 
             // Clipped to a high percentile: one stretch of walking would otherwise
             // flatten the whole run into a line along the top of the chart.
-            val fastest = paces.min()
-            val slowest = paces.sorted()[(paces.size * 0.95).toInt().coerceAtMost(paces.size - 1)]
+            // The targets are part of the range, or a rep run far off pace would push its
+            // own band off the chart — exactly the case the band is there to show.
+            val fastest = min(paces.min(), targets.minOfOrNull { it.paceSecPerKm.start } ?: Double.MAX_VALUE)
+            val slowest = max(
+                paces.sorted()[(paces.size * 0.95).toInt().coerceAtMost(paces.size - 1)],
+                targets.maxOfOrNull { it.paceSecPerKm.endInclusive } ?: 0.0,
+            )
             val paceSpan = max(slowest - fastest, 1.0)
+            fun yOf(pace: Double): Float {
+                val normalised = ((pace - fastest) / paceSpan).coerceIn(0.0, 1.0)
+                return (0.08f + 0.62f * normalised.toFloat()) * size.height
+            }
 
             drawElevation(samples, totalM, elevationColor)
+            drawTargets(targets, totalM, targetColor, ::yOf)
             drawSelection(selection, totalM, selectionColor, edgeColor)
 
             drawLine(
@@ -117,11 +133,47 @@ fun PaceProfileChart(
                     return@forEach
                 }
                 val x = (sample.distanceM / totalM).toFloat() * size.width
-                val normalised = ((pace - fastest) / paceSpan).coerceIn(0.0, 1.0)
-                val y = (0.08f + 0.62f * normalised.toFloat()) * size.height
+                val y = yOf(pace)
                 if (started) path.lineTo(x, y) else path.moveTo(x, y).also { started = true }
             }
             drawPath(path, color = paceColor, style = Stroke(width = 2.5.dp.toPx()))
+        }
+    }
+}
+
+/** What one step of a session asked for, over the stretch of the run it was run in. */
+data class PaceTarget(
+    val fromM: Double,
+    val toM: Double,
+    val paceSecPerKm: ClosedFloatingPointRange<Double>,
+)
+
+/**
+ * A translucent band for a range, a line for a single pace. The fast edge is at the top,
+ * like the line it is compared with.
+ */
+private fun DrawScope.drawTargets(
+    targets: List<PaceTarget>,
+    totalM: Double,
+    color: Color,
+    yOf: (Double) -> Float,
+) {
+    val minHeight = 2.dp.toPx()
+    targets.forEach { target ->
+        val left = (target.fromM / totalM).toFloat().coerceIn(0f, 1f) * size.width
+        val right = (target.toM / totalM).toFloat().coerceIn(0f, 1f) * size.width
+        if (right - left < 1f) return@forEach
+        val top = yOf(target.paceSecPerKm.start)
+        val bottom = yOf(target.paceSecPerKm.endInclusive)
+        if (bottom - top < minHeight) {
+            val y = (top + bottom) / 2
+            drawLine(color, Offset(left, y), Offset(right, y), strokeWidth = minHeight)
+        } else {
+            drawRect(
+                color = color.copy(alpha = 0.22f),
+                topLeft = Offset(left, top),
+                size = Size(right - left, bottom - top),
+            )
         }
     }
 }

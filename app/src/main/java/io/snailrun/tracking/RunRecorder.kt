@@ -18,6 +18,7 @@ import io.snailrun.domain.metrics.AutoPauseDetector
 import io.snailrun.domain.metrics.AutoPauseEvent
 import io.snailrun.domain.metrics.FixOutcome
 import io.snailrun.domain.metrics.MetricsAccumulator
+import io.snailrun.domain.metrics.Motion
 import io.snailrun.domain.metrics.RunMetrics
 import io.snailrun.domain.metrics.TrackGaps
 import io.snailrun.domain.model.RawFix
@@ -209,7 +210,12 @@ class RunRecorder(
         true
     }
 
-    suspend fun onFix(fix: RawFix) = mutex.withLock {
+    /**
+     * [motion] is the accelerometer's reading at the moment the fix arrived, or null
+     * without one. Passed in rather than read here, so the recorder stays free of Android
+     * and a test can say exactly what the phone felt.
+     */
+    suspend fun onFix(fix: RawFix, motion: Motion? = null) = mutex.withLock {
         val id = runId ?: return@withLock
 
         // A hole in the fixes wipes what the auto-pause detector was thinking. Its
@@ -225,7 +231,7 @@ class RunRecorder(
         }
         lastFixMs = fix.epochMs
 
-        applyAutoPause(fix, id)
+        applyAutoPause(fix, id, motion)
         when (val outcome = accumulator.onFix(fix)) {
             is FixOutcome.Recorded -> {
                 pending += outcome.point
@@ -266,13 +272,13 @@ class RunRecorder(
      * A manual pause is never undone here. Someone who stopped the run on purpose does
      * not want it restarted because they walked to the car.
      */
-    private suspend fun applyAutoPause(fix: RawFix, id: Long) {
+    private suspend fun applyAutoPause(fix: RawFix, id: Long, motion: Motion?) {
         val detector = autoPause ?: return
         val status = accumulator.metrics.status
         if (status != RunStatus.RECORDING && status != RunStatus.PAUSED_AUTO) return
 
         val speed = speedOf(fix) ?: return
-        when (detector.onSpeed(fix.epochMs, speed, isAutoPaused = status == RunStatus.PAUSED_AUTO)) {
+        when (detector.onSpeed(fix.epochMs, speed, isAutoPaused = status == RunStatus.PAUSED_AUTO, motion = motion)) {
             AutoPauseEvent.Pause -> {
                 accumulator.pause(manual = false)
                 flush(id)

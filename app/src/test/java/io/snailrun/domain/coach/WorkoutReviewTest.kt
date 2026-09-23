@@ -116,4 +116,26 @@ class WorkoutReviewTest {
         // The time is still the session's, not the wall clock's: nothing was double-counted.
         assertTrue(results.sumOf { it.actualMs } <= 810_000L)
     }
+
+    @Test
+    fun `faster is better on a rep, and the mistake on a jog`() {
+        fun result(kind: SegmentKind, seconds: Long) = SegmentResult(
+            segment = WorkoutSegment(0, "x", kind, targetMs = 60_000, paceSecPerKm = 300.0..300.0),
+            actualMs = seconds * 1000,
+            actualMeters = 1_000.0,
+        )
+        assertEquals(PaceVerdict.Better, result(SegmentKind.Work, 290).verdict)
+        assertEquals(PaceVerdict.Worse, result(SegmentKind.Work, 310).verdict)
+        assertEquals(PaceVerdict.Worse, result(SegmentKind.Recover, 290).verdict)
+        assertEquals(PaceVerdict.Better, result(SegmentKind.Recover, 310).verdict)
+        assertEquals(PaceVerdict.OnTarget, result(SegmentKind.Work, 300).verdict)
+    }
+
+    @Test
+    fun `each segment knows where along the run it began`() {
+        val results = WorkoutReview.of(segments, emptyList(), track(810, 4.0))
+        assertEquals(0.0, results[0].startedAtMeters, 0.0)
+        assertEquals(1_000.0, results[1].startedAtMeters, 1.0)
+        assertEquals(1_480.0, results[2].startedAtMeters, 1.0)
+    }
 }

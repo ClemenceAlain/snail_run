@@ -1,6 +1,7 @@
 package io.snailrun.domain.metrics
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AutoPauseDetectorTest {
@@ -78,5 +79,81 @@ class AutoPauseDetectorTest {
         // The lone 4 m/s fix at second 20 must not restart the clock.
         assertEquals(AutoPauseEvent.Resume, events[1].second)
         assertEquals(33, events[1].first)
+    }
+
+    /** One (speed, what the accelerometer felt) per second. */
+    private fun feedWithMotion(seconds: List<Pair<Double, MotionState?>>): List<Pair<Int, AutoPauseEvent>> {
+        var paused = false
+        var state: MotionState? = null
+        var since = 0
+        return seconds.mapIndexedNotNull { second, (speed, felt) ->
+            if (felt != state) {
+                state = felt
+                since = second
+            }
+            val motion = felt?.let { Motion(it, (second - since) * 1_000L) }
+            val event = detector.onSpeed(second * 1_000L, speed, paused, motion)
+            when (event) {
+                AutoPauseEvent.Pause -> paused = true
+                AutoPauseEvent.Resume -> paused = false
+                AutoPauseEvent.None -> Unit
+            }
+            if (event == AutoPauseEvent.None) null else second to event
+        }
+    }
+
+    /** The chip's speed as it really comes in: a second or two behind the runner. */
+    private val stopAndGo: List<Double> =
+        List(20) { 3.0 } + listOf(2.0, 0.8) + List(28) { 0.1 } + listOf(0.6, 1.8) + List(18) { 3.0 }
+
+    @Test
+    fun `the accelerometer pauses and resumes seconds sooner than GPS alone`() {
+        val felt = List(20) { MotionState.MOVING } + List(30) { MotionState.STILL } +
+            List(20) { MotionState.MOVING }
+
+        val withMotion = feedWithMotion(stopAndGo.zip(felt))
+        val gpsOnly = AutoPauseDetector().let { gps ->
+            var paused = false
+            stopAndGo.mapIndexedNotNull { second, speed ->
+                gps.onSpeed(second * 1_000L, speed, paused)
+                    .takeIf { it != AutoPauseEvent.None }
+                    ?.also { paused = it == AutoPauseEvent.Pause }
+                    ?.let { second to it }
+            }
+        }
+
+        // Stopped at 20: still for a second by 21, and the chip already under 1.2 m/s.
+        assertEquals(listOf(21 to AutoPauseEvent.Pause, 51 to AutoPauseEvent.Resume), withMotion)
+        assertTrue(gpsOnly[0].first >= 24)
+        assertTrue(gpsOnly[1].first >= 53)
+    }
+
+    @Test
+    fun `handling the phone while stopped does not restart the clock`() {
+        // Taken out of a pocket and shaken about, but the runner is going nowhere.
+        val seconds = List(10) { 3.0 to MotionState.MOVING } +
+            List(10) { 0.1 to MotionState.STILL } +
+            List(5) { 0.2 to MotionState.MOVING } +
+            List(10) { 0.1 to MotionState.STILL }
+
+        val events = feedWithMotion(seconds)
+
+        assertEquals(listOf(AutoPauseEvent.Pause), events.map { it.second })
+    }
+
+    @Test
+    fun `a still phone does not pause a runner GPS says is running`() {
+        val seconds = List(30) { 3.0 to MotionState.STILL }
+
+        assertEquals(emptyList<Pair<Int, AutoPauseEvent>>(), feedWithMotion(seconds))
+    }
+
+    @Test
+    fun `jogging on the spot at a light is still paused by GPS`() {
+        val seconds = List(10) { 3.0 to MotionState.MOVING } + List(20) { 0.1 to MotionState.MOVING }
+
+        val events = feedWithMotion(seconds)
+
+        assertEquals(listOf(AutoPauseEvent.Pause), events.map { it.second })
     }
 }

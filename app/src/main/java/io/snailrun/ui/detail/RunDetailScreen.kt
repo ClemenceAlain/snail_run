@@ -27,13 +27,16 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import io.snailrun.R
 import io.snailrun.data.db.RunEntity
+import io.snailrun.data.repo.SOURCE_MANUAL
 import io.snailrun.domain.analysis.ProfileSample
 import io.snailrun.domain.analysis.ProfileSelection
 import io.snailrun.domain.model.LatLon
 import io.snailrun.ui.components.BasemapLayer
 import io.snailrun.ui.components.MetricRow
 import io.snailrun.ui.components.PaceProfileChart
+import io.snailrun.ui.components.PaceTarget
 import io.snailrun.ui.components.RouteTrace
+import io.snailrun.domain.coach.PaceVerdict
 import io.snailrun.domain.coach.SegmentResult
 import io.snailrun.domain.metrics.InferredLeg
 import io.snailrun.domain.coach.WorkoutType
@@ -99,6 +102,15 @@ fun RunDetailScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (run.source == SOURCE_MANUAL) {
+                // Said, so the missing map and graph read as nothing to show rather than
+                // as something that failed to load.
+                Text(
+                    text = "Entered by hand. No track, so no map, graph or splits.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Spacer(Modifier.height(Spacing.xxl))
         }
 
@@ -155,7 +167,12 @@ fun RunDetailScreen(
                 Spacer(Modifier.height(Spacing.l))
                 Text(text = "Pace", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    text = "Drag across the graph for the average over a stretch.",
+                    text = "Drag across the graph for the average over a stretch." +
+                        if (state.session.any { it.segment.paceSecPerKm != null }) {
+                            " The shaded bands are the paces the session asked for."
+                        } else {
+                            ""
+                        },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -163,6 +180,15 @@ fun RunDetailScreen(
 
                 PaceProfileChart(
                     samples = state.profile,
+                    targets = state.session.mapNotNull { result ->
+                        result.segment.paceSecPerKm?.let { band ->
+                            PaceTarget(
+                                fromM = result.startedAtMeters,
+                                toM = result.startedAtMeters + result.actualMeters,
+                                paceSecPerKm = band,
+                            )
+                        }
+                    },
                     selection = state.selection?.let { it.fromM..it.toM },
                     onSelectionChange = { range ->
                         if (range == null) onClearSelection()
@@ -204,7 +230,8 @@ fun RunDetailScreen(
             }
         }
 
-        item {
+        // A typed-in run has no altitudes, and "+0 m" would read as a flat route.
+        if (run.source != SOURCE_MANUAL) item {
             Spacer(Modifier.height(Spacing.section))
             Text(
                 text = "Elevation  +${RunFormat.elevation(run.elevationGainM)} m " +
@@ -256,10 +283,19 @@ private fun InferredCard(legs: List<InferredLeg>) {
  *
  * The difference is only shown where there was a target to miss. A jog has no pace to be
  * wrong about, and printing a number beside it would invite the runner to chase it.
+ *
+ * Green where it went well — on target, or off it the way that helps — and red where it
+ * did not, with the direction said in words: "+8 s" left the reader to work out whether
+ * a bigger number of seconds per kilometre was the good way or the bad one.
  */
 @Composable
 private fun SessionRow(result: SegmentResult) {
     val delta = result.paceDeltaSecPerKm
+    val verdictColor = when (result.verdict) {
+        PaceVerdict.OnTarget, PaceVerdict.Better -> MaterialTheme.colorScheme.primary
+        PaceVerdict.Worse -> MaterialTheme.colorScheme.error
+        null -> MaterialTheme.colorScheme.onSurface
+    }
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.xs),
         verticalAlignment = Alignment.CenterVertically,
@@ -274,6 +310,13 @@ private fun SessionRow(result: SegmentResult) {
                 },
                 style = MaterialTheme.typography.bodyLarge,
             )
+            result.segment.paceSecPerKm?.let { band ->
+                Text(
+                    text = "asked ${paceBand(band)}\u00A0/km",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Text(
                 text = "${RunFormat.duration(result.actualMs)} · " +
                     "${RunFormat.distanceKm(result.actualMeters)}\u00A0km",
@@ -285,6 +328,7 @@ private fun SessionRow(result: SegmentResult) {
             Text(
                 text = "${RunFormat.pace(result.actualPaceSecPerKm)}\u00A0/km",
                 style = SnailType.metricSmall,
+                color = verdictColor,
                 maxLines = 1,
                 softWrap = false,
             )
@@ -292,15 +336,11 @@ private fun SessionRow(result: SegmentResult) {
                 Text(
                     text = when {
                         result.onTarget -> "on target"
-                        delta > 0 -> "+${delta.roundToInt()} s"
-                        else -> "${delta.roundToInt()} s"
+                        delta > 0 -> "${delta.roundToInt()}\u00A0s/km slower"
+                        else -> "${(-delta).roundToInt()}\u00A0s/km faster"
                     },
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (result.onTarget) {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    } else {
-                        MaterialTheme.colorScheme.error
-                    },
+                    color = verdictColor,
                     maxLines = 1,
                     softWrap = false,
                 )
@@ -308,6 +348,11 @@ private fun SessionRow(result: SegmentResult) {
         }
     }
 }
+
+/** "3:54", or "5:10–5:40" where the target is a range. */
+private fun paceBand(band: ClosedFloatingPointRange<Double>): String =
+    if (band.endInclusive - band.start < 1.0) RunFormat.pace(band.start)
+    else "${RunFormat.pace(band.start)}–${RunFormat.pace(band.endInclusive)}"
 
 private fun sessionTitle(type: String): String =
     runCatching { WorkoutType.valueOf(type).label }.getOrDefault("Session")

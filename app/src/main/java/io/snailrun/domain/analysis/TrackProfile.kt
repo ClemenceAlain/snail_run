@@ -83,10 +83,10 @@ object TrackProfile {
         val elevation = ElevationTracker()
         // The endpoints are interpolated, so the climb is measured between them and not
         // between whichever fixes happen to sit just inside.
-        a.elevationM?.let(elevation::onVettedElevation)
+        elevation.onElevation(a.elevationM)
         points.filter { it.cumulativeDistanceM in start..end }
-            .forEach { point -> point.elevationM?.let(elevation::onVettedElevation) }
-        b.elevationM?.let(elevation::onVettedElevation)
+            .forEach { point -> elevation.onElevation(point.elevationM) }
+        elevation.onElevation(b.elevationM)
 
         return ProfileSelection(
             fromM = start,

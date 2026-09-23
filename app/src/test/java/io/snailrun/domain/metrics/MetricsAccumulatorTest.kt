@@ -195,6 +195,45 @@ class MetricsAccumulatorTest {
     }
 
     @Test
+    fun `a climb is counted on a phone that reports no vertical accuracy, or a poor one`() {
+        // The bug this guards: every fix failed a 10 m accuracy gate and every run
+        // climbed 0 m.
+        listOf<Float?>(null, 18f).forEach { verticalAccuracy ->
+            val accumulator = MetricsAccumulator()
+            var t = Traces.START_MS
+            var distance = 0.0
+            repeat(300) { i ->
+                accumulator.onFix(
+                    Traces.fix(distance, t, altitudeM = 40.0 + i * 0.2, verticalAccuracyM = verticalAccuracy)
+                )
+                distance += 3.0
+                t += 1000
+            }
+            assertEquals(60.0, accumulator.metrics.elevationGainM, 12.0)
+        }
+    }
+
+    @Test
+    fun `the climb over the stored track is the one the live screen showed`() {
+        val accumulator = MetricsAccumulator()
+        val points = mutableListOf<io.snailrun.domain.model.TrackPoint>()
+        var t = Traces.START_MS
+        var distance = 0.0
+        repeat(300) { i ->
+            val wobble = listOf(0.0, 2.5, -1.8, 3.1, -2.2, 1.4)[i % 6]
+            val outcome = accumulator.onFix(
+                Traces.fix(distance, t, altitudeM = 40.0 + i * 0.15 + wobble)
+            )
+            if (outcome is FixOutcome.Recorded) points += outcome.point
+            distance += 3.0
+            t += 1000
+        }
+        val stored = ElevationTracker.over(points)
+        assertEquals(accumulator.metrics.elevationGainM, stored.gainM, 0.0)
+        assertTrue(stored.gainM > 30.0)
+    }
+
+    @Test
     fun `a recovered run continues its totals instead of starting over`() {
         val first = MetricsAccumulator()
         val points = mutableListOf<io.snailrun.domain.model.TrackPoint>()

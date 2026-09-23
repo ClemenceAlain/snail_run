@@ -7,6 +7,7 @@ import io.snailrun.domain.coach.WorkoutSegment
 import io.snailrun.domain.coach.WorkoutType
 import io.snailrun.domain.analysis.SplitCalculator
 import io.snailrun.domain.geo.TrackSmoother
+import io.snailrun.domain.metrics.ElevationTracker
 import io.snailrun.domain.metrics.RunMetrics
 import io.snailrun.domain.metrics.TrackGaps
 import io.snailrun.domain.model.TrackPoint
@@ -23,6 +24,9 @@ const val SOURCE_RECORDED = "RECORDED"
 
 /** A run replayed from the built-in synthetic trace. Kept out of personal records. */
 const val SOURCE_DEMO = "DEMO"
+
+/** A run typed in after the fact: a distance and a time, and no track behind them. */
+const val SOURCE_MANUAL = "MANUAL"
 
 /**
  * The only thing that writes runs.
@@ -87,6 +91,48 @@ class RunRepository(
                 note = null,
                 source = source,
                 status = STATUS_RECORDING,
+            )
+        )
+    }
+
+    /**
+     * Stores a run that was never recorded: the watch was flat, or it was on a treadmill.
+     *
+     * Written complete in one insert, with no points. Everything that reads the history —
+     * the calendar, the totals, the coach's weekly load — counts it like any other run.
+     * Everything derived from a track — splits, records, the map — has nothing to work
+     * from and finds nothing, which is the honest answer: a typed-in 5 km is not evidence
+     * of a fastest kilometre.
+     *
+     * Stamped with the current filter version so it is never queued for reprocessing;
+     * there is no track to reprocess.
+     */
+    suspend fun addManualRun(
+        startedAtEpochMs: Long,
+        durationMs: Long,
+        distanceMeters: Double,
+        zone: ZoneId = ZoneId.systemDefault(),
+    ): Long {
+        require(durationMs > 0 && distanceMeters > 0.0) { "A run needs a time and a distance" }
+        return dao.insertRun(
+            RunEntity(
+                startedAtEpochMs = startedAtEpochMs,
+                endedAtEpochMs = startedAtEpochMs + durationMs,
+                timeZoneId = zone.id,
+                localDate = localDate(startedAtEpochMs, zone),
+                distanceMeters = distanceMeters,
+                elapsedTimeMs = durationMs,
+                movingTimeMs = durationMs,
+                avgPaceSecPerKm = durationMs / 1000.0 / (distanceMeters / 1000.0),
+                elevationGainM = 0.0,
+                elevationLossM = 0.0,
+                pointCount = 0,
+                minLat = 0.0, maxLat = 0.0, minLon = 0.0, maxLon = 0.0,
+                title = null,
+                note = null,
+                source = SOURCE_MANUAL,
+                status = STATUS_COMPLETE,
+                smootherVersion = TrackSmoother.VERSION,
             )
         )
     }
@@ -164,6 +210,9 @@ class RunRepository(
 
         val bounds = points.fold(Bounds()) { acc, point -> acc.extend(point) }
         val movingTimeMs = metrics.activeDurationMs
+        // From the whole stored track rather than the live figure, which starts again at
+        // zero when a run is recovered after a crash.
+        val elevation = ElevationTracker.over(points)
 
         dao.completeRun(
             run = run.copy(
@@ -173,8 +222,8 @@ class RunRepository(
                 movingTimeMs = movingTimeMs,
                 avgPaceSecPerKm = if (metrics.distanceMeters < 10.0) 0.0
                     else movingTimeMs / 1000.0 / (metrics.distanceMeters / 1000.0),
-                elevationGainM = metrics.elevationGainM,
-                elevationLossM = metrics.elevationLossM,
+                elevationGainM = elevation.gainM,
+                elevationLossM = elevation.lossM,
                 pointCount = points.size,
                 minLat = bounds.minLat, maxLat = bounds.maxLat,
                 minLon = bounds.minLon, maxLon = bounds.maxLon,
@@ -215,6 +264,7 @@ class RunRepository(
         val distance = smoothed.last().cumulativeDistanceM
         val movingTimeMs = TrackGaps.activeDurationOf(smoothed)
         val bounds = smoothed.fold(Bounds()) { acc, point -> acc.extend(point) }
+        val elevation = ElevationTracker.over(smoothed)
 
         // Only the derived column is written back; the raw latitude and longitude stay
         // exactly as they were recorded.
@@ -230,6 +280,8 @@ class RunRepository(
                 movingTimeMs = movingTimeMs,
                 avgPaceSecPerKm = if (distance < 10.0) 0.0
                     else movingTimeMs / 1000.0 / (distance / 1000.0),
+                elevationGainM = elevation.gainM,
+                elevationLossM = elevation.lossM,
                 pointCount = smoothed.size,
                 minLat = bounds.minLat, maxLat = bounds.maxLat,
                 minLon = bounds.minLon, maxLon = bounds.maxLon,

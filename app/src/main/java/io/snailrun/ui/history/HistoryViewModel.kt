@@ -134,6 +134,25 @@ class HistoryViewModel(
         }
     }
 
+    /**
+     * Stores a typed-in run, then shows the day it landed on. A run added for last month
+     * would otherwise vanish into a month the calendar is not showing.
+     */
+    fun addManualRun(run: ManualRun) {
+        viewModelScope.launch {
+            repository.addManualRun(
+                startedAtEpochMs = run.startedAtEpochMs,
+                durationMs = run.durationMs,
+                distanceMeters = run.distanceMeters,
+            )
+            val date = Instant.ofEpochMilli(run.startedAtEpochMs)
+                .atZone(ZoneId.systemDefault())
+                .toLocalDate()
+            yearMonth = YearMonth.from(date)
+            _ui.value = rebuild(_ui.value.copy(mode = HistoryMode.Calendar, selectedDate = date))
+        }
+    }
+
     fun togglePaces() {
         _ui.value = _ui.value.copy(pacesExpanded = !_ui.value.pacesExpanded)
     }
