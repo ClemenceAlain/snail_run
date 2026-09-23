@@ -33,6 +33,7 @@ import io.snailrun.domain.coach.StrengthStage
 import io.snailrun.domain.coach.StrengthStageKind
 import io.snailrun.ui.components.Badge
 import io.snailrun.ui.components.BadgeTone
+import io.snailrun.ui.components.ExerciseFigure
 import io.snailrun.ui.components.MetricReadout
 import io.snailrun.ui.components.SnailCard
 import io.snailrun.ui.theme.SnailType
@@ -104,7 +105,7 @@ fun StrengthScreen(
 
         when {
             state.complete -> Finished(workout.name)
-            progress != null -> Stage(progress, content)
+            progress != null -> Stage(progress, state.running, content)
         }
 
         Spacer(Modifier.weight(1f))
@@ -123,7 +124,11 @@ fun StrengthScreen(
 
 /** What to do now, and what is after it. */
 @Composable
-private fun Stage(progress: StrengthProgress, content: androidx.compose.ui.graphics.Color) {
+private fun Stage(
+    progress: StrengthProgress,
+    running: Boolean,
+    content: androidx.compose.ui.graphics.Color,
+) {
     val stage = progress.stage
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Badge(
@@ -131,6 +136,20 @@ private fun Stage(progress: StrengthProgress, content: androidx.compose.ui.graph
             tone = if (stage.kind == StrengthStageKind.Rest) BadgeTone.Easy else BadgeTone.Hard,
         )
         Spacer(Modifier.height(Spacing.l))
+
+        // What the move looks like. During a rest it is the next move, standing still,
+        // so the runner can get into position before the clock lets them go.
+        val rest = stage.kind == StrengthStageKind.Rest
+        val shown = if (rest) progress.next?.exercise else stage.exercise
+        if (shown != null) {
+            ExerciseFigure(
+                exercise = shown,
+                modifier = Modifier.size(160.dp),
+                animate = !rest && running,
+                color = content,
+            )
+            Spacer(Modifier.height(Spacing.m))
+        }
 
         Text(
             text = stage.exercise,

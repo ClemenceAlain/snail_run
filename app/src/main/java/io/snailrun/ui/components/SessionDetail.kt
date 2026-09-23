@@ -2,7 +2,6 @@ package io.snailrun.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,7 +10,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -138,11 +136,10 @@ private fun StrengthDetail(workout: Workout, modifier: Modifier = Modifier) {
     ) {
         workout.steps.forEach { step ->
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.tertiary),
+                ExerciseFigure(
+                    exercise = step.label,
+                    modifier = Modifier.size(48.dp),
+                    color = MaterialTheme.colorScheme.tertiary,
                 )
                 Spacer(Modifier.width(Spacing.m))
                 Text(
