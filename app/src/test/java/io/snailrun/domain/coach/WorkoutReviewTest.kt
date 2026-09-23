@@ -118,7 +118,7 @@ class WorkoutReviewTest {
     }
 
     @Test
-    fun `faster is better on a rep, and the mistake on a jog`() {
+    fun `faster is better, and a few seconds either way is on target`() {
         fun result(kind: SegmentKind, seconds: Long) = SegmentResult(
             segment = WorkoutSegment(0, "x", kind, targetMs = 60_000, paceSecPerKm = 300.0..300.0),
             actualMs = seconds * 1000,
@@ -126,9 +126,11 @@ class WorkoutReviewTest {
         )
         assertEquals(PaceVerdict.Better, result(SegmentKind.Work, 290).verdict)
         assertEquals(PaceVerdict.Worse, result(SegmentKind.Work, 310).verdict)
-        assertEquals(PaceVerdict.Worse, result(SegmentKind.Recover, 290).verdict)
-        assertEquals(PaceVerdict.Better, result(SegmentKind.Recover, 310).verdict)
+        assertEquals(PaceVerdict.Better, result(SegmentKind.Recover, 290).verdict)
+        assertEquals(PaceVerdict.Worse, result(SegmentKind.Recover, 310).verdict)
         assertEquals(PaceVerdict.OnTarget, result(SegmentKind.Work, 300).verdict)
+        assertEquals(PaceVerdict.OnTarget, result(SegmentKind.Work, 296).verdict)
+        assertEquals(PaceVerdict.OnTarget, result(SegmentKind.Work, 304).verdict)
     }
 
     @Test

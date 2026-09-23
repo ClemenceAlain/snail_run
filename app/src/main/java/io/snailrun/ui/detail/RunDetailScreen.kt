@@ -284,8 +284,8 @@ private fun InferredCard(legs: List<InferredLeg>) {
  * The difference is only shown where there was a target to miss. A jog has no pace to be
  * wrong about, and printing a number beside it would invite the runner to chase it.
  *
- * Green where it went well — on target, or off it the way that helps — and red where it
- * did not, with the direction said in words: "+8 s" left the reader to work out whether
+ * The asked-for pace is green where it went well — on target, or faster — and red where
+ * it was slower. The run pace stays grey. The direction is said in words: "+8 s" left the reader to work out whether
  * a bigger number of seconds per kilometre was the good way or the bad one.
  */
 @Composable
@@ -294,7 +294,7 @@ private fun SessionRow(result: SegmentResult) {
     val verdictColor = when (result.verdict) {
         PaceVerdict.OnTarget, PaceVerdict.Better -> MaterialTheme.colorScheme.primary
         PaceVerdict.Worse -> MaterialTheme.colorScheme.error
-        null -> MaterialTheme.colorScheme.onSurface
+        null -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.xs),
@@ -314,7 +314,7 @@ private fun SessionRow(result: SegmentResult) {
                 Text(
                     text = "asked ${paceBand(band)}\u00A0/km",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = verdictColor,
                 )
             }
             Text(
@@ -328,7 +328,7 @@ private fun SessionRow(result: SegmentResult) {
             Text(
                 text = "${RunFormat.pace(result.actualPaceSecPerKm)}\u00A0/km",
                 style = SnailType.metricSmall,
-                color = verdictColor,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 softWrap = false,
             )
@@ -340,7 +340,7 @@ private fun SessionRow(result: SegmentResult) {
                         else -> "${(-delta).roundToInt()}\u00A0s/km faster"
                     },
                     style = MaterialTheme.typography.bodyMedium,
-                    color = verdictColor,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     softWrap = false,
                 )

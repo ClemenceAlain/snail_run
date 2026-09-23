@@ -30,23 +30,21 @@ data class SegmentResult(
             }
         }
 
-    val onTarget: Boolean get() = paceDeltaSecPerKm?.let { kotlin.math.abs(it) < 1.0 } ?: true
+    /** Within [ON_TARGET_SEC_PER_KM] of the band: a few seconds either way is not a miss. */
+    val onTarget: Boolean
+        get() = paceDeltaSecPerKm?.let { kotlin.math.abs(it) <= ON_TARGET_SEC_PER_KM } ?: true
 
-    /**
-     * Whether a miss went the way that helps, or null where there was no target.
-     *
-     * Faster is better only on work. On a warm-up, a jog or a cool-down the point is to
-     * go easy, so running it slower than asked is fine and faster is the mistake — the
-     * one that leaves nothing for the reps.
-     */
+    /** Whether a miss went the way that helps, or null where there was no target. Faster helps. */
     val verdict: PaceVerdict?
         get() {
             val delta = paceDeltaSecPerKm ?: return null
             if (onTarget) return PaceVerdict.OnTarget
-            val faster = delta < 0
-            val fasterIsBetter = segment.kind == SegmentKind.Work
-            return if (faster == fasterIsBetter) PaceVerdict.Better else PaceVerdict.Worse
+            return if (delta < 0) PaceVerdict.Better else PaceVerdict.Worse
         }
+
+    companion object {
+        const val ON_TARGET_SEC_PER_KM = 5.0
+    }
 }
 
 /**
