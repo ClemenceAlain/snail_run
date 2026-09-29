@@ -48,11 +48,13 @@
     <string name="speech_next">then</string>
     <!-- Counting somebody through a session on the floor. Said while they are standing
          up off a mat rather than mid-rep, so these can afford whole words. -->
-    <string name="speech_set_of">set %1$d of %2$d</string>
+    <string name="speech_round_of">round %1$d of %2$d</string>
     <plurals name="speech_times">
         <item quantity="one">%1$d time</item>
         <item quantity="other">%1$d times</item>
     </plurals>
-    <string name="speech_per_side">each side</string>
+    <string name="speech_left_side">left side</string>
+    <string name="speech_right_side">right side</string>
+    <string name="speech_switch_sides">switch sides</string>
     <string name="speech_rest">rest</string>
 </resources>

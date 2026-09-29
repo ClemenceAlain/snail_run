@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.snailrun.R
 import io.snailrun.domain.coach.StrengthProgress
+import io.snailrun.domain.coach.StrengthSide
 import io.snailrun.domain.coach.StrengthStage
 import io.snailrun.domain.coach.StrengthStageKind
 import io.snailrun.ui.components.Badge
@@ -62,7 +63,8 @@ fun StrengthScreen(
     val workout = state.workout ?: run { Box(modifier.fillMaxSize()); return }
     val progress = state.progress
 
-    val resting = progress?.stage?.kind == StrengthStageKind.Rest
+    // A switch between sides is coloured as a pause: nothing is being worked in it.
+    val resting = progress != null && progress.stage.kind != StrengthStageKind.Work
     val background by animateColorAsState(
         targetValue = when {
             state.complete -> MaterialTheme.colorScheme.surface
@@ -131,15 +133,22 @@ private fun Stage(
 ) {
     val stage = progress.stage
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        val rest = stage.kind != StrengthStageKind.Work
         Badge(
-            text = if (stage.kind == StrengthStageKind.Rest) "Rest" else "Set ${stage.set} of ${stage.setCount}",
-            tone = if (stage.kind == StrengthStageKind.Rest) BadgeTone.Easy else BadgeTone.Hard,
+            text = when (stage.kind) {
+                StrengthStageKind.Work ->
+                    "Round ${stage.round} of ${stage.roundCount} · " +
+                        "exercise ${stage.exerciseIndex} of ${stage.exerciseCount}"
+                StrengthStageKind.Rest -> "Rest"
+                StrengthStageKind.Switch -> "Switch"
+            },
+            tone = if (rest) BadgeTone.Easy else BadgeTone.Hard,
         )
         Spacer(Modifier.height(Spacing.l))
 
-        // What the move looks like. During a rest it is the next move, standing still,
-        // so the runner can get into position before the clock lets them go.
-        val rest = stage.kind == StrengthStageKind.Rest
+        // What the move looks like. During a rest or a switch it is the next move,
+        // standing still, so the runner can get into position before the clock lets them
+        // go.
         val shown = if (rest) progress.next?.exercise else stage.exercise
         if (shown != null) {
             ExerciseFigure(
@@ -157,6 +166,15 @@ private fun Stage(
             color = content,
             textAlign = TextAlign.Center,
         )
+        // Which side, said as loudly as the exercise: "each side" under a single clock
+        // left it unclear whether the clock was for one side or for both.
+        stage.side?.let { side ->
+            Text(
+                text = sideLabel(side),
+                style = MaterialTheme.typography.titleLarge,
+                color = content,
+            )
+        }
         Spacer(Modifier.height(Spacing.m))
 
         // The hero: a countdown on anything held, the rep count on anything counted.
@@ -167,15 +185,6 @@ private fun Stage(
             caption = if (progress.remainingMs != null) "seconds left" else "reps",
             valueStyle = SnailType.metricHero,
         )
-
-        if (stage.perSide) {
-            Spacer(Modifier.height(Spacing.s))
-            Text(
-                text = "each side",
-                style = MaterialTheme.typography.bodyLarge,
-                color = content,
-            )
-        }
 
         progress.next?.let { next ->
             Spacer(Modifier.height(Spacing.xl))
@@ -272,11 +281,20 @@ private fun Controls(
     }
 }
 
-private fun describe(stage: StrengthStage): String = when {
-    stage.kind == StrengthStageKind.Rest -> "rest ${stage.seconds} s"
-    stage.seconds != null -> "${stage.exercise.lowercase()}, ${stage.seconds} s"
-    stage.reps != null -> "${stage.exercise.lowercase()}, ${stage.reps}"
-    else -> stage.exercise.lowercase()
+private fun describe(stage: StrengthStage): String {
+    if (stage.kind == StrengthStageKind.Rest) return "rest ${stage.seconds} s"
+    if (stage.kind == StrengthStageKind.Switch) return "switch sides"
+    val name = stage.exercise.lowercase() + (stage.side?.let { ", ${sideLabel(it).lowercase()}" } ?: "")
+    return when {
+        stage.seconds != null -> "$name, ${stage.seconds} s"
+        stage.reps != null -> "$name, ${stage.reps}"
+        else -> name
+    }
+}
+
+private fun sideLabel(side: StrengthSide): String = when (side) {
+    StrengthSide.Left -> "Left side"
+    StrengthSide.Right -> "Right side"
 }
 
 /** Whole seconds, rounded up: a countdown that shows 0 for a second has already lied. */

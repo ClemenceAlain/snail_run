@@ -1,18 +1,27 @@
 package io.snailrun.domain.coach
 
-/** Whether you are doing the thing or recovering from it. */
-enum class StrengthStageKind { Work, Rest }
+/**
+ * Doing the thing, recovering from it, or turning round to do it on the other side.
+ *
+ * [Switch] is its own kind rather than a short [Rest] because it is not recovery: it is
+ * the five seconds it takes to get from a left-side plank onto the right, and calling it
+ * rest would tell somebody to sit down when they should be rolling over.
+ */
+enum class StrengthStageKind { Work, Rest, Switch }
+
+/** Which side a one-sided set is on. Null for a movement that uses both at once. */
+enum class StrengthSide { Left, Right }
 
 /**
- * One thing to do now: a set, or the rest after one.
+ * One thing to do now: an exercise on one side, or the pause after it.
  *
  * The strength equivalent of a [WorkoutSegment], and separate from it for the same reason
- * that exists — a [WorkoutStep] describes "3 × 10 split squats per leg" to a reader, and
- * something has to describe the second of those three to a runner who is in it.
+ * that exists — a [WorkoutStep] describes "10 split squats per side" to a reader, and
+ * something has to describe the left leg of the second round to a runner who is on it.
  *
- * It carries the exercise's position as well as the set's, because "set 2 of 3" alone is
- * useless on a screen you glance at from the floor: the question is always which exercise
- * *and* how much of it is left.
+ * It carries the exercise's position as well as the round's, because "round 2 of 3"
+ * alone is useless on a screen you glance at from the floor: the question is always which
+ * exercise *and* how much of the session is left.
  */
 data class StrengthStage(
     val index: Int,
@@ -20,14 +29,16 @@ data class StrengthStage(
     /** 1-based, for "exercise 2 of 5". */
     val exerciseIndex: Int,
     val exerciseCount: Int,
-    val set: Int,
-    val setCount: Int,
+    /** 1-based pass through the circuit, for "round 2 of 3". */
+    val round: Int,
+    val roundCount: Int,
     val kind: StrengthStageKind,
     /** Repetitions to count out, for a set that is not held. */
     val reps: Int? = null,
-    /** Seconds to hold, for a set that is. Rest stages always have one. */
+    /** Seconds to hold, for a set that is. Rest and switch stages always have one. */
     val seconds: Int? = null,
-    val perSide: Boolean = false,
+    /** The side this set is on, for a one-sided movement. Each side is its own stage. */
+    val side: StrengthSide? = null,
 ) {
     /**
      * Whether this stage ends on its own.
@@ -92,54 +103,99 @@ data class StrengthProgress(
  */
 class StrengthSession(val stages: List<StrengthStage>) {
 
-    /**
-     * How long to rest between sets.
-     *
-     * Forty-five seconds is the figure for bodyweight work done for endurance rather than
-     * for maximum strength: long enough to do the next set properly, short enough that a
-     * twenty-minute session stays twenty minutes. It is not offered as a setting, because
-     * a runner who wants to argue about rest intervals is not the runner this feature is
-     * for.
-     */
     companion object {
-        const val REST_SECONDS = 45
+        /**
+         * Rest between one exercise and the next, inside a round.
+         *
+         * Short, because the session is a circuit: the squats rest while the calves work,
+         * so the pause only has to cover getting into the next position.
+         */
+        const val MOVE_REST_SECONDS = 15
+
+        /**
+         * Rest after a full round, before the circuit starts again.
+         *
+         * A minute is the figure for bodyweight work done for endurance rather than for
+         * maximum strength: long enough to do the next round properly, short enough that a
+         * twenty-minute session stays twenty minutes. Neither rest is offered as a
+         * setting, because a runner who wants to argue about rest intervals is not the
+         * runner this feature is for.
+         */
+        const val ROUND_REST_SECONDS = 60
+
+        /** Time to change from the left side to the right. Not rest; see [StrengthStageKind]. */
+        const val SWITCH_SECONDS = 5
 
         /**
          * Unrolls a strength [Workout] into the stages it is actually done in.
          *
+         * A circuit: every exercise once, then the whole list again, as many rounds as
+         * the exercises have sets. Doing all three sets of one movement back to back is
+         * how heavy lifting is done, where a muscle needs its full recovery; for bodyweight
+         * work it only tires one muscle and then leaves it idle for ten minutes. An
+         * exercise with fewer sets than the others simply drops out of the later rounds.
+         *
+         * A one-sided set becomes two stages, left then right, with a short switch
+         * between. "30 s each side" on a single 30 s clock reads as fifteen a side and
+         * gives the second side no timer at all.
+         *
          * The trailing rest is dropped, exactly as [WorkoutSegments] drops the trailing
-         * jog: a session that ends "…, set 3, rest 45 s" asks somebody to sit on the
+         * jog: a session that ends "…, plank, rest 60 s" asks somebody to sit on the
          * floor and then tells them they have finished sitting on the floor.
          */
-        fun stages(workout: Workout, restSeconds: Int = REST_SECONDS): List<StrengthStage> {
-            val out = mutableListOf<StrengthStage>()
+        fun stages(
+            workout: Workout,
+            moveRestSeconds: Int = MOVE_REST_SECONDS,
+            roundRestSeconds: Int = ROUND_REST_SECONDS,
+            switchSeconds: Int = SWITCH_SECONDS,
+        ): List<StrengthStage> {
             val exercises = workout.steps
-            exercises.forEachIndexed { exerciseIndex, step ->
-                val sets = step.repeats.coerceAtLeast(1)
-                repeat(sets) { set ->
-                    out += StrengthStage(
-                        index = out.size,
+            if (exercises.isEmpty()) return emptyList()
+            val rounds = exercises.maxOf { it.repeats.coerceAtLeast(1) }
+
+            val out = mutableListOf<StrengthStage>()
+            fun add(stage: StrengthStage) {
+                out += stage.copy(index = out.size)
+            }
+
+            for (round in 1..rounds) {
+                val inRound = exercises.withIndex().filter { it.value.repeats.coerceAtLeast(1) >= round }
+                inRound.forEachIndexed { position, (exerciseIndex, step) ->
+                    val work = StrengthStage(
+                        index = 0,
                         exercise = step.label,
                         exerciseIndex = exerciseIndex + 1,
                         exerciseCount = exercises.size,
-                        set = set + 1,
-                        setCount = sets,
+                        round = round,
+                        roundCount = rounds,
                         kind = StrengthStageKind.Work,
                         reps = step.countPerSet,
                         seconds = step.durationMs?.let { (it / 1000L).toInt() },
-                        perSide = step.perSide,
                     )
-                    val last = exerciseIndex == exercises.lastIndex && set == sets - 1
-                    if (!last) {
-                        out += StrengthStage(
-                            index = out.size,
-                            exercise = "Rest",
-                            exerciseIndex = exerciseIndex + 1,
-                            exerciseCount = exercises.size,
-                            set = set + 1,
-                            setCount = sets,
-                            kind = StrengthStageKind.Rest,
-                            seconds = restSeconds,
+                    if (step.perSide) {
+                        add(work.copy(side = StrengthSide.Left))
+                        add(
+                            work.copy(
+                                exercise = "Switch sides",
+                                kind = StrengthStageKind.Switch,
+                                reps = null,
+                                seconds = switchSeconds,
+                            )
+                        )
+                        add(work.copy(side = StrengthSide.Right))
+                    } else {
+                        add(work)
+                    }
+
+                    val endOfRound = position == inRound.lastIndex
+                    if (!(endOfRound && round == rounds)) {
+                        add(
+                            work.copy(
+                                exercise = "Rest",
+                                kind = StrengthStageKind.Rest,
+                                reps = null,
+                                seconds = if (endOfRound) roundRestSeconds else moveRestSeconds,
+                            )
                         )
                     }
                 }
@@ -163,8 +219,8 @@ class StrengthSession(val stages: List<StrengthStage>) {
         var state = cursor
         if (state.announcedIndex < 0) state = state.copy(stageStartedMs = elapsedMs)
 
-        // A loop rather than an `if`: a phone that slept through a forty-five second rest
-        // should come back with the next set started, not one tick behind it.
+        // A loop rather than an `if`: a phone that slept through a one-minute rest should
+        // come back with the next round started, not one tick behind it.
         while (!state.complete && dueAt(state, elapsedMs)) {
             state = step(state, elapsedMs)
         }

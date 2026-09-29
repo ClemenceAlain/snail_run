@@ -16,7 +16,10 @@ import org.junit.Test
  */
 class StrengthSessionTest {
 
-    /** 2 × 10 squats, then 2 × 30 s plank. Four sets, three rests between them. */
+    /**
+     * Two rounds of 10 squats then a 30 s plank. Four sets, three rests between them:
+     * short inside a round, long between the two.
+     */
     private val workout = Workout(
         type = WorkoutType.Strength,
         totalMeters = 0.0,
@@ -27,47 +30,104 @@ class StrengthSessionTest {
         reason = "x",
     )
 
-    private val stages = StrengthSession.stages(workout, restSeconds = 45)
+    private val stages = StrengthSession.stages(workout, moveRestSeconds = 15, roundRestSeconds = 60)
     private fun session() = StrengthSession(stages)
 
     // ---- unrolling ---------------------------------------------------------------------
 
     @Test
-    fun `every set becomes a stage, with a rest between but not after`() {
-        assertEquals(7, stages.size)
+    fun `the session is a circuit, with a rest between sets but not after the last`() {
         assertEquals(
-            listOf("Squats", "Rest", "Squats", "Rest", "Plank", "Rest", "Plank"),
+            listOf("Squats", "Rest", "Plank", "Rest", "Squats", "Rest", "Plank"),
             stages.map { it.exercise },
         )
         assertEquals(StrengthStageKind.Work, stages.last().kind)
     }
 
     @Test
-    fun `a stage knows where it is in the session and in its exercise`() {
-        assertEquals(1 to 2, stages[0].set to stages[0].setCount)
-        assertEquals(2 to 2, stages[2].set to stages[2].setCount)
+    fun `the rest between rounds is longer than the rest between moves`() {
+        assertEquals(15, stages[1].seconds)
+        assertEquals(60, stages[3].seconds)
+        assertEquals(15, stages[5].seconds)
+    }
+
+    @Test
+    fun `a stage knows its round and its exercise`() {
+        assertEquals(1 to 2, stages[0].round to stages[0].roundCount)
+        assertEquals(2 to 2, stages[4].round to stages[4].roundCount)
         assertEquals(1, stages[0].exerciseIndex)
-        assertEquals(2, stages[4].exerciseIndex)
+        assertEquals(2, stages[2].exerciseIndex)
         assertEquals(2, stages[0].exerciseCount)
+        assertEquals(stages.indices.toList(), stages.map { it.index })
+    }
+
+    @Test
+    fun `an exercise with fewer sets drops out of the later rounds`() {
+        val uneven = Workout(
+            WorkoutType.Strength, 0.0,
+            listOf(
+                WorkoutStep("Squats", repeats = 2, countPerSet = 10),
+                WorkoutStep("Plank", repeats = 1, durationMs = 30_000L),
+            ),
+            "x",
+        )
+        assertEquals(
+            listOf("Squats", "Rest", "Plank", "Rest", "Squats"),
+            StrengthSession.stages(uneven).map { it.exercise },
+        )
     }
 
     @Test
     fun `a counted set carries reps and no clock, a held one the reverse`() {
         assertFalse(stages[0].isTimed)
         assertEquals(10, stages[0].reps)
-        assertTrue(stages[4].isTimed)
-        assertEquals(30_000L, stages[4].durationMs)
-        assertNull(stages[4].reps)
+        assertTrue(stages[2].isTimed)
+        assertEquals(30_000L, stages[2].durationMs)
+        assertNull(stages[2].reps)
     }
 
     @Test
-    fun `per side survives the unrolling`() {
+    fun `a counted set done per side is counted once a side`() {
         val oneSided = Workout(
             WorkoutType.Strength, 0.0,
             listOf(WorkoutStep("Split squats", repeats = 1, countPerSet = 10, perSide = true)),
             "x",
         )
-        assertTrue(StrengthSession.stages(oneSided).single().perSide)
+        val unrolled = StrengthSession.stages(oneSided, switchSeconds = 5)
+        assertEquals(
+            listOf(StrengthStageKind.Work, StrengthStageKind.Switch, StrengthStageKind.Work),
+            unrolled.map { it.kind },
+        )
+        assertEquals(StrengthSide.Left to 10, unrolled[0].side to unrolled[0].reps)
+        assertEquals(5, unrolled[1].seconds)
+        assertEquals(StrengthSide.Right to 10, unrolled[2].side to unrolled[2].reps)
+    }
+
+    /** "30 s each side" is thirty on the left and thirty on the right, each on its own clock. */
+    @Test
+    fun `a held set done per side gets the full time on each side`() {
+        val oneSided = Workout(
+            WorkoutType.Strength, 0.0,
+            listOf(WorkoutStep("Side plank", repeats = 1, durationMs = 30_000L, perSide = true)),
+            "x",
+        )
+        val work = StrengthSession.stages(oneSided).filter { it.kind == StrengthStageKind.Work }
+        assertEquals(listOf(StrengthSide.Left, StrengthSide.Right), work.map { it.side })
+        assertEquals(listOf(30_000L, 30_000L), work.map { it.durationMs })
+    }
+
+    @Test
+    fun `a switch between sides ends itself`() {
+        val oneSided = Workout(
+            WorkoutType.Strength, 0.0,
+            listOf(WorkoutStep("Split squats", repeats = 1, countPerSet = 10, perSide = true)),
+            "x",
+        )
+        val s = StrengthSession(StrengthSession.stages(oneSided, switchSeconds = 5))
+        val cursor = s.advance(4_000L, s.evaluate(0, StrengthCursor()).third)
+        assertEquals(StrengthStageKind.Switch, s.progressOf(cursor, 4_000L).stage.kind)
+        val after = s.evaluate(9_100L, cursor).third
+        assertEquals(StrengthSide.Right, s.progressOf(after, 9_100L).stage.side)
     }
 
     // ---- what ends on a clock and what does not ------------------------------------------
@@ -88,7 +148,7 @@ class StrengthSessionTest {
         cursor = s.advance(4_000L, cursor)
         val progress = s.progressOf(cursor, 4_000L)
         assertEquals("Rest", progress.stage.exercise)
-        assertEquals(45_000L, progress.remainingMs)
+        assertEquals(15_000L, progress.remainingMs)
     }
 
     @Test
@@ -96,16 +156,16 @@ class StrengthSessionTest {
         val s = session()
         var cursor = s.advance(4_000L, s.evaluate(0, StrengthCursor()).third)
         // One tick before, and one after.
-        assertEquals("Rest", s.evaluate(48_000L, cursor).first.stage.exercise)
-        cursor = s.evaluate(49_100L, cursor).third
-        assertEquals("Squats", s.progressOf(cursor, 49_100L).stage.exercise)
-        assertEquals(2, s.progressOf(cursor, 49_100L).stage.set)
+        assertEquals("Rest", s.evaluate(18_000L, cursor).first.stage.exercise)
+        cursor = s.evaluate(19_100L, cursor).third
+        assertEquals("Plank", s.progressOf(cursor, 19_100L).stage.exercise)
+        assertEquals(1, s.progressOf(cursor, 19_100L).stage.round)
     }
 
     @Test
     fun `a held set ends itself`() {
         val s = session()
-        var cursor = StrengthCursor(stageIndex = 4, stageStartedMs = 100_000L, announcedIndex = 4)
+        var cursor = StrengthCursor(stageIndex = 2, stageStartedMs = 100_000L, announcedIndex = 2)
         assertEquals("Plank", s.progressOf(cursor, 120_000L).stage.exercise)
         cursor = s.evaluate(131_000L, cursor).third
         assertEquals("Rest", s.progressOf(cursor, 131_000L).stage.exercise)
@@ -115,20 +175,21 @@ class StrengthSessionTest {
     @Test
     fun `a long gap advances as many stages as it covers`() {
         val s = session()
-        val cursor = StrengthCursor(stageIndex = 4, stageStartedMs = 0L, announcedIndex = 4)
-        // 30 s plank, 45 s rest, 30 s plank = 105 s of timed stages from here.
+        val cursor = StrengthCursor(stageIndex = 2, stageStartedMs = 0L, announcedIndex = 2)
+        // 30 s plank, then 60 s rest: the squats of round 2 started at 90 s, and wait.
         val (progress, _, after) = s.evaluate(200_000L, cursor)
-        assertTrue("session should be over, was ${progress.stage.exercise}", after.complete)
+        assertEquals(4, after.stageIndex)
+        assertEquals(110_000L, progress.elapsedInStageMs)
     }
 
     @Test
     fun `a stage that ran its course hands the overshoot on`() {
         val s = session()
-        val cursor = StrengthCursor(stageIndex = 4, stageStartedMs = 0L, announcedIndex = 4)
+        val cursor = StrengthCursor(stageIndex = 2, stageStartedMs = 0L, announcedIndex = 2)
         // The plank was due at 30 s; the tick lands at 30.9.
         val after = s.evaluate(30_900L, cursor).third
-        // The rest therefore started at 30 s, not at 30.9 — so 5 s in, 40 remain.
-        assertEquals(40_000L, s.progressOf(after, 35_000L).remainingMs)
+        // The rest therefore started at 30 s, not at 30.9 — so 5 s in, 55 remain.
+        assertEquals(55_000L, s.progressOf(after, 35_000L).remainingMs)
     }
 
     // ---- what it says ----------------------------------------------------------------------
@@ -144,7 +205,7 @@ class StrengthSessionTest {
     @Test
     fun `a held stage counts down once each and only downwards`() {
         val s = session()
-        var cursor = StrengthCursor(stageIndex = 4, stageStartedMs = 0L, announcedIndex = 4)
+        var cursor = StrengthCursor(stageIndex = 2, stageStartedMs = 0L, announcedIndex = 2)
         val spoken = mutableListOf<Int>()
         // Four ticks a second through the last five seconds of a 30 s plank.
         for (ms in 25_000L..30_000L step 250L) {
@@ -188,6 +249,12 @@ class StrengthSessionTest {
                     "${it.exercise} is counted in neither reps nor seconds",
                     it.reps != null || it.seconds != null,
                 )
+            }
+            // Every left side is followed, after its switch, by the right.
+            stages.filter { it.side == StrengthSide.Left }.forEach {
+                assertEquals(StrengthStageKind.Switch, stages[it.index + 1].kind)
+                assertEquals(StrengthSide.Right, stages[it.index + 2].side)
+                assertEquals(it.exercise, stages[it.index + 2].exercise)
             }
         }
     }

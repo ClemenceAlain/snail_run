@@ -69,15 +69,26 @@ object SessionFormat {
         step.paceSecPerKm?.let { append(" at ${pace(it)}") }
     }
 
-    /** "3 × 12 squats", "3 × 45 s plank", "3 × 10 split squats per leg". */
+    /**
+     * "12 squats", "45 s plank", "10 split squats each side".
+     *
+     * No "3 ×": the session is a circuit, so the set count belongs to the whole list and
+     * is said once, by [strengthRounds].
+     */
     fun strengthStep(step: WorkoutStep): String = buildString {
-        append("${step.repeats} × ")
         when {
             step.countPerSet != null -> append("${step.countPerSet} ")
             step.durationMs != null -> append("${duration(step.durationMs)} ")
         }
         append(step.label.lowercase())
-        if (step.perSide) append(" per side")
+        if (step.perSide) append(" each side")
+    }
+
+    /** "3 rounds, one exercise after the other". Null for a session with no steps. */
+    fun strengthRounds(workout: Workout): String? {
+        val rounds = workout.steps.maxOfOrNull { it.repeats.coerceAtLeast(1) } ?: return null
+        return if (rounds == 1) "Once through, one exercise after the other"
+        else "$rounds rounds, one exercise after the other"
     }
 
     /**

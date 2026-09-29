@@ -127,13 +127,20 @@ private fun BlockRow(block: SessionBlock, current: Boolean, done: Boolean, repDo
     }
 }
 
-/** The reinforcement session: sets and repetitions, which are neither of the above. */
+/** The reinforcement session: rounds and repetitions, which are neither of the above. */
 @Composable
 private fun StrengthDetail(workout: Workout, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(Spacing.s),
     ) {
+        SessionFormat.strengthRounds(workout)?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         workout.steps.forEach { step ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ExerciseFigure(

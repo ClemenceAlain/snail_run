@@ -14,7 +14,12 @@ package io.snailrun.domain.coach
  */
 object Strength {
 
-    /** One movement, as it is prescribed: sets, then what a set is. */
+    /**
+     * One movement, as it is prescribed: sets, then what a set is.
+     *
+     * The session is a circuit, so [sets] is how many rounds the movement appears in —
+     * see [StrengthSession.stages].
+     */
     data class Exercise(
         val name: String,
         val sets: Int,
@@ -22,7 +27,7 @@ object Strength {
         val reps: Int? = null,
         /** Seconds held, for a movement counted in time. */
         val seconds: Int? = null,
-        /** Both sides, counted separately. "per leg" on the screen. */
+        /** Both sides, one after the other. [reps] or [seconds] is for each side. */
         val perSide: Boolean = false,
     )
 
@@ -56,7 +61,9 @@ object Strength {
         ),
         Routine(
             name = "Hips and feet",
-            minutes = 15,
+            // Every movement but one is done once a side, so this takes as long as the
+            // other routine despite the shorter holds.
+            minutes = 20,
             reason = "The hip that drops and the foot that rolls are where most running " +
                 "injuries actually start. Neither shows up in a training log.",
             exercises = listOf(

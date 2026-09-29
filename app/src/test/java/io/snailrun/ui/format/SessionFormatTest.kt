@@ -97,10 +97,13 @@ class SessionFormatTest {
     }
 
     @Test
-    fun `a strength exercise reads as sets and reps`() {
+    fun `a strength exercise reads as reps, with the rounds said once`() {
         val session = io.snailrun.domain.coach.Strength.session(0)
         val lines = session.steps.map { SessionFormat.strengthStep(it) }
-        assertTrue(lines.any { it.matches(Regex("""\d+ × \d+ \D+""")) })
+        assertTrue(lines.any { it.matches(Regex("""\d+ \D+""")) })
         assertTrue(lines.any { it.contains("s ") })
+        assertTrue(lines.any { it.endsWith(" each side") })
+        assertTrue(lines.none { it.contains("×") })
+        assertEquals("3 rounds, one exercise after the other", SessionFormat.strengthRounds(session))
     }
 }

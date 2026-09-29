@@ -2,6 +2,10 @@ package io.snailrun.domain.voice
 
 import org.junit.Assert.assertEquals
 import io.snailrun.domain.coach.SegmentKind
+import io.snailrun.domain.coach.StrengthCue
+import io.snailrun.domain.coach.StrengthSide
+import io.snailrun.domain.coach.StrengthStage
+import io.snailrun.domain.coach.StrengthStageKind
 import io.snailrun.domain.coach.WorkoutCue
 import io.snailrun.domain.coach.WorkoutSegment
 import org.junit.Assert.assertFalse
@@ -26,9 +30,11 @@ private object EnglishVocabulary : SpeechVocabulary {
         RunNotice.AutoResumed -> "running again"
     }
     override fun repOf(index: Int, count: Int) = "rep $index of $count"
-    override fun setOf(index: Int, count: Int) = "set $index of $count"
+    override fun roundOf(index: Int, count: Int) = "round $index of $count"
     override fun timesLabel(count: Int) = if (count == 1) "1 time" else "$count times"
-    override val perSideLabel = "each side"
+    override val leftSide = "left side"
+    override val rightSide = "right side"
+    override val switchSides = "switch sides"
     override val restLabel = "rest"
     override fun countdown(seconds: Int) = "$seconds"
     override val easeDown = "ease down"
@@ -175,5 +181,36 @@ class PaceSpeechFormatterTest {
             assertFalse(spoken, spoken.contains(":"))
             assertFalse(spoken, Regex("\\d:\\d").containsMatchIn(spoken))
         }
+    }
+
+    // ---- a session on the floor --------------------------------------------------------
+
+    private fun work(exerciseIndex: Int, side: StrengthSide? = null) = StrengthStage(
+        index = 0, exercise = "Side plank", exerciseIndex = exerciseIndex, exerciseCount = 5,
+        round = 2, roundCount = 3, kind = StrengthStageKind.Work, seconds = 30, side = side,
+    )
+
+    @Test
+    fun `a one-sided set names its side before its time`() {
+        val spoken = formatter.format(StrengthCue.StageStart(work(3, StrengthSide.Left), null))
+        assertEquals("side plank. left side. for 30 seconds.", spoken)
+    }
+
+    @Test
+    fun `the round is said on the first exercise of it and not after`() {
+        assertEquals(
+            "side plank. round 2 of 3. for 30 seconds.",
+            formatter.format(StrengthCue.StageStart(work(1), null)),
+        )
+        assertEquals(
+            "side plank. right side. for 30 seconds.",
+            formatter.format(StrengthCue.StageStart(work(1, StrengthSide.Right), null)),
+        )
+    }
+
+    @Test
+    fun `a switch is said as a switch, not as rest`() {
+        val switch = work(3).copy(kind = StrengthStageKind.Switch, exercise = "Switch sides", seconds = 5)
+        assertEquals("switch sides.", formatter.format(StrengthCue.StageStart(switch, null)))
     }
 }
