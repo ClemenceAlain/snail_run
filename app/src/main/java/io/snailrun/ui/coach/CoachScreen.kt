@@ -170,6 +170,14 @@ fun CoachScreen(
             // A rest day with strength on it has the strength as its only content, so it
             // is promoted rather than shown under an empty "Rest".
             strength = day.strength.takeIf { day.workout.type != WorkoutType.Rest },
+            onStartStrength = day.strength
+                ?.takeIf { day.workout.type != WorkoutType.Rest && !plan.frozen }
+                ?.let { strength ->
+                    {
+                        onExpand(day.date)
+                        onStartStrength(strength)
+                    }
+                },
             // A saved week is history: there is nothing in it left to start.
             action = when {
                 plan.frozen -> null

@@ -154,7 +154,8 @@ object SessionFormat {
         return out
     }
 
-    private fun target(segment: WorkoutSegment): String = buildString {
+    /** "45 s · 4:05 /km · 105 % VMA": what one segment asks for, on one line. */
+    fun target(segment: WorkoutSegment): String = buildString {
         when {
             segment.targetMs != null -> append(duration(segment.targetMs))
             segment.targetM != null -> append(distance(segment.targetM))

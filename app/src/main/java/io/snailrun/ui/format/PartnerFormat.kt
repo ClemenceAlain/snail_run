@@ -14,6 +14,14 @@ data class PartnerLine(
     val note: String?,
 )
 
+/** The partner's side of one segment of the runner's session, for the live screen. */
+data class PartnerSegment(
+    /** "3 min · 3:35 /km", as [SessionFormat.target] writes the runner's. */
+    val target: String,
+    /** Who jogs the gap, who turns back. The step's note, said on each of its segments. */
+    val note: String?,
+)
+
 /**
  * A shared session, written for two.
  *
@@ -48,20 +56,47 @@ object PartnerFormat {
         }
     }
 
-    /** "38 of 52 min together, regrouping 5 times." Null outside Together mode. */
+    /**
+     * "Regrouping 5 times, finishing 30 s apart." Null outside Together mode, or when
+     * there is nothing to say.
+     *
+     * How long the two spend side by side is not said: it is the warm-up and the jogs,
+     * which the rows already show, and a minute count beside them read as a score.
+     */
     fun summary(shared: SharedSession): String? {
         val plan = shared.together ?: return null
-        val together = (plan.togetherMs / 60_000.0).roundToInt()
-        val total = (plan.totalMs / 60_000.0).roundToInt()
-        return buildString {
-            append("$together of $total min together")
+        val parts = buildList {
             when (plan.regroups) {
                 0 -> Unit
-                1 -> append(", regrouping once")
-                else -> append(", regrouping ${plan.regroups} times")
+                1 -> add("regrouping once")
+                else -> add("regrouping ${plan.regroups} times")
             }
-            if (plan.finishGapMs >= 5_000L) append(", finishing ${duration(plan.finishGapMs)} apart")
-            append(".")
+            if (plan.finishGapMs >= 5_000L) add("finishing ${duration(plan.finishGapMs)} apart")
+        }
+        if (parts.isEmpty()) return null
+        return parts.joinToString(", ").replaceFirstChar { it.uppercase() } + "."
+    }
+
+    /**
+     * The partner's side of every segment the runner is counted through, or null when the
+     * two sessions do not line up segment for segment.
+     *
+     * Index *i* is the partner's version of the runner's segment *i*, so the live screen
+     * can show both for wherever the recorder is. The step a segment belongs to is
+     * counted the way [WorkoutSegments.of] unrolls it: each rep, and a jog between reps.
+     */
+    fun bySegment(shared: SharedSession): List<PartnerSegment>? {
+        val hers = WorkoutSegments.of(shared.her)
+        val his = WorkoutSegments.of(shared.his)
+        if (hers.size != his.size) return null
+        val stepOf = shared.his.steps.flatMapIndexed { index, step ->
+            val repeats = step.repeats.coerceAtLeast(1)
+            val jogs = if (step.recoveryMs != null || step.recoveryM != null) repeats - 1 else 0
+            List(repeats + jogs) { index }
+        }
+        if (stepOf.size != his.size) return null
+        return his.mapIndexed { i, segment ->
+            PartnerSegment(target = SessionFormat.target(segment), note = note(shared, stepOf[i], forPartner = false))
         }
     }
 

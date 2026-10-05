@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -51,6 +52,8 @@ fun SessionSheet(
     currentSegment: Int? = null,
     strength: Workout? = null,
     action: Pair<String, () -> Unit>? = null,
+    /** Starts the [strength] session shown under a run. Null hides the button. */
+    onStartStrength: (() -> Unit)? = null,
     /** The partner's version of each block, when the session is shared. */
     partner: io.snailrun.domain.coach.Partner? = null,
     partnerLines: List<io.snailrun.ui.format.PartnerLine> = emptyList(),
@@ -148,6 +151,14 @@ fun SessionSheet(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                // Its own button: the run's "Run this" below arms the run, and the strength
+                // work is a separate thing done on the floor, before or after it.
+                onStartStrength?.let { start ->
+                    Spacer(Modifier.height(Spacing.m))
+                    OutlinedButton(onClick = start, modifier = Modifier.fillMaxWidth()) {
+                        Text("Start strength")
+                    }
+                }
             }
 
             action?.let { (label, onClick) ->

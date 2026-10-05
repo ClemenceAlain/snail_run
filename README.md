@@ -566,7 +566,9 @@ agree.
 
 A partner is a name and a VMA under Settings → Coach — not a second user. They have no
 runs and no plan here; the app only translates the days you share. Open a day, pick them,
-and their version of every block appears under yours. Each runner is a snail in their own
+and their version of every block appears beside yours, the two paces level. While the
+session runs, the record screen shows both targets for the current step, and who jogs the
+gap to regroup. Each runner is a snail in their own
 colour: blue for you, then violet, magenta, teal and slate for partners. Your snails face
 each other on a shared day.
 
@@ -579,7 +581,8 @@ each other on a shared day.
   one only has to drop thirty seconds a kilometre below theirs. Reps stay as they are, at
   your own paces. On distance reps the faster one finishes early and jogs the gap, so you
   start the next rep together. On timed reps you start and stop together, and the sheet
-  says how far ahead the faster one ends, so they know how far to come back. A tempo is
+  says how far ahead the faster one ends, so they know how far to come back. The sheet says how
+  many times you regroup; it does not count minutes spent side by side. A tempo is
   run for your time, so you finish it together.
 - **Only the shared day changes.** The pairing is stored against the day the session was
   planned for, so it follows a drag. Removing the partner forgets it. **Send … the

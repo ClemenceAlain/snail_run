@@ -39,7 +39,13 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.clickable
+import io.snailrun.domain.coach.Partner
 import io.snailrun.domain.coach.SegmentKind
+import io.snailrun.domain.coach.WorkoutSegments
+import io.snailrun.ui.components.PartnerSnail
+import io.snailrun.ui.components.YouSnail
+import io.snailrun.ui.format.PartnerFormat
+import io.snailrun.ui.format.PartnerSegment
 import io.snailrun.domain.coach.Workout
 import io.snailrun.domain.coach.WorkoutProgress
 import io.snailrun.domain.coach.WorkoutSegment
@@ -88,6 +94,16 @@ fun RecordScreen(
     val partnerLines = androidx.compose.runtime.remember(todaysShared) {
         todaysShared?.let { io.snailrun.ui.format.PartnerFormat.lines(it) }.orEmpty()
     }
+    // The partner's side of each segment being counted, but only when the session running
+    // is the shared one: a session loaded from another day would line up with nothing.
+    val liveSegments = active?.workoutSegments
+    val partnerLive = remember(todaysShared, liveSegments) {
+        val shared = todaysShared ?: return@remember null
+        val hers = WorkoutSegments.of(shared.her)
+        val same = liveSegments != null && liveSegments.size == hers.size &&
+            liveSegments.zip(hers).all { (a, b) -> a.label == b.label && a.targetMs == b.targetMs && a.targetM == b.targetM }
+        if (same) PartnerFormat.bySegment(shared) else null
+    }
 
     // One sheet for the whole screen, whichever card opened it. The session being run
     // and the session being considered are the same thing said at two different moments,
@@ -127,6 +143,8 @@ fun RecordScreen(
         if (active?.workout != null) {
             SessionPanel(
                 progress = active.workout,
+                partner = todaysShared?.partner?.takeIf { partnerLive != null },
+                partnerNow = partnerLive?.getOrNull(active.workout.segment.index),
                 onNext = onNextSegment,
                 onEnd = onEndSession,
                 onShowDetail = {
@@ -327,6 +345,8 @@ private fun TodaysSession(
 @Composable
 private fun SessionPanel(
     progress: WorkoutProgress,
+    partner: Partner?,
+    partnerNow: PartnerSegment?,
     onNext: () -> Unit,
     onEnd: () -> Unit,
     onShowDetail: () -> Unit,
@@ -385,12 +405,14 @@ private fun SessionPanel(
                     style = MaterialTheme.typography.titleMedium,
                     color = content,
                 )
-                progress.segment.paceSecPerKm?.let { band ->
-                    Text(
-                        text = paceBand(band),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = content,
-                    )
+                if (partner == null) {
+                    progress.segment.paceSecPerKm?.let { band ->
+                        Text(
+                            text = paceBand(band),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = content,
+                        )
+                    }
                 }
             }
             // What is left, in whatever the step was prescribed in. A step given a time
@@ -404,6 +426,38 @@ private fun SessionPanel(
                 maxLines = 1,
                 softWrap = false,
             )
+        }
+
+        // Shared: both targets level, each behind its snail, then who waits for whom.
+        if (partner != null && partnerNow != null) {
+            Spacer(Modifier.height(Spacing.xs))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+            ) {
+                Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                    YouSnail(size = 18.dp)
+                    Spacer(Modifier.size(Spacing.xs))
+                    Text(
+                        text = SessionFormat.target(progress.segment).ifEmpty { "—" },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = content,
+                    )
+                }
+                Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                    PartnerSnail(partner.id, partner.name, size = 18.dp)
+                    Spacer(Modifier.size(Spacing.xs))
+                    Text(
+                        text = partnerNow.target.ifEmpty { "—" },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = content,
+                    )
+                }
+            }
+            partnerNow.note?.let {
+                Text(text = it, style = MaterialTheme.typography.bodySmall, color = content)
+            }
+            Spacer(Modifier.height(Spacing.xs))
         }
 
         progress.next?.let { next ->

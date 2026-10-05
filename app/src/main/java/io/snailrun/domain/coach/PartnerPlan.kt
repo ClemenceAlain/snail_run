@@ -34,8 +34,6 @@ data class TogetherPlan(
      * the two meet in the jog. This is how far there is to come back.
      */
     val spreadM: Map<Int, Double>,
-    val togetherMs: Long,
-    val totalMs: Long,
     /** How many times they split up and run back into each other. */
     val regroups: Int,
     /** How far apart they finish, where the session ends on something they cannot share. */
@@ -110,7 +108,7 @@ object PartnerPlan {
     fun together(workout: Workout, herVdot: Double, hisVdot: Double): TogetherPlan {
         val mirrored = mirror(workout, herVdot, hisVdot)
         if (!workout.type.isRun) {
-            return TogetherPlan(workout, mirrored, emptySet(), emptySet(), emptyMap(), emptyMap(), emptyMap(), 0L, 0L, 0, 0L)
+            return TogetherPlan(workout, mirrored, emptySet(), emptySet(), emptyMap(), emptyMap(), emptyMap(), 0, 0L)
         }
         val herSteps = mutableListOf<WorkoutStep>()
         val hisSteps = mutableListOf<WorkoutStep>()
@@ -122,13 +120,8 @@ object PartnerPlan {
 
         // Her clock minus his. Positive: he is ahead, with that much to spare.
         var gap = 0L
-        var herClock = 0L
-        var togetherMs = 0L
         var regroups = 0
         var apart = false
-        // Metres between them when they last split, still to be closed before they are
-        // side by side again.
-        var pendingSpreadM = 0.0
 
         workout.steps.forEachIndexed { index, mine ->
             val his = mirrored.steps.getOrElse(index) { mine }
@@ -146,18 +139,15 @@ object PartnerPlan {
                 if (gap < 0 && extra > 0) herExtra[index] = extra
                 herSteps += if (gap < 0) extended(herBase, extra) else herBase
                 hisSteps += if (gap > 0) extended(hisBase, extra) else hisBase
-                herClock += herMs + (herExtra[index] ?: 0L)
                 gap = 0L
 
                 if (shared != null) {
                     sharedSteps += index
-                    togetherMs += (herMs - meetingMs(pendingSpreadM, shared)).coerceAtLeast(0L)
                     if (apart) regroups++
                     apart = false
-                    pendingSpreadM = 0.0
                 } else {
                     apart = true
-                    pendingSpreadM = noteSpread(spread, index, herBase, hisBase, herMs)
+                    noteSpread(spread, index, herBase, hisBase, herMs)
                 }
                 return@forEachIndexed
             }
@@ -168,9 +158,8 @@ object PartnerPlan {
                 herSteps += mine
                 val hisStep = if (herMs > 0) timed(his, herMs) else his
                 hisSteps += hisStep
-                herClock += herMs
                 apart = true
-                pendingSpreadM = noteSpread(spread, index, mine, hisStep, herMs)
+                noteSpread(spread, index, mine, hisStep, herMs)
                 return@forEachIndexed
             }
 
@@ -184,10 +173,9 @@ object PartnerPlan {
             if (!hasRecovery) {
                 herSteps += mine
                 hisSteps += his
-                herClock += herRep * repeats
                 gap += delta * repeats
                 apart = true
-                pendingSpreadM = noteSpread(spread, index, mine, his, herRep)
+                noteSpread(spread, index, mine, his, herRep)
                 return@forEachIndexed
             }
 
@@ -212,18 +200,15 @@ object PartnerPlan {
             herSteps += herStep
             hisSteps += hisStep
 
-            herClock += herRep * repeats + (jogMs + (herExtra[index] ?: 0L)) * (repeats - 1)
             // Every jog closes the gap its rep opened, except after the last rep: there
             // is no jog there, so that one is carried to the next thing they can share.
             gap += delta
-            val repSpread = noteSpread(spread, index, mine, his, herRep)
+            noteSpread(spread, index, mine, his, herRep)
             if (shared != null) {
                 sharedRecoveries += index
-                togetherMs += (jogMs - meetingMs(repSpread, shared)).coerceAtLeast(0L) * (repeats - 1)
                 regroups += repeats - 1
             }
             apart = true
-            pendingSpreadM = repSpread
         }
 
         return TogetherPlan(
@@ -234,8 +219,6 @@ object PartnerPlan {
             herExtraMs = herExtra,
             hisExtraMs = hisExtra,
             spreadM = spread,
-            togetherMs = togetherMs,
-            totalMs = herClock,
             regroups = regroups,
             finishGapMs = abs(gap),
         )
@@ -290,10 +273,6 @@ object PartnerPlan {
         if (apart > 0.0) spread[index] = apart
         return apart
     }
-
-    /** How long two runners [meters] apart take to meet, jogging towards each other. */
-    private fun meetingMs(meters: Double, pace: ClosedFloatingPointRange<Double>): Long =
-        if (meters <= 0.0) 0L else Workouts.durationAt(mid(pace), meters / 2.0)
 
     private fun mid(range: ClosedFloatingPointRange<Double>) = (range.start + range.endInclusive) / 2.0
 

@@ -45,7 +45,8 @@ class PartnerFormatTest {
         val text = PartnerFormat.shareText(shared(PairMode.Together), "Tue 7 Oct")
         assertTrue(text, text.startsWith("Repetitions — Tue 7 Oct"))
         assertTrue(text, text.contains("VMA 18"))
-        assertTrue(text, text.contains("min together"))
+        assertTrue(text, text.contains("Regrouping 10 times."))
+        assertTrue(text, !text.contains("min together"))
         assertTrue(text, !text.contains("Alex jogs"))
     }
 
@@ -53,5 +54,21 @@ class PartnerFormatTest {
     fun `nothing is shared without a partner or a fitness`() {
         assertNull(SharedSession.of(reps, null, alex, PairMode.Mirror))
         assertNull(SharedSession.of(reps, her, null, PairMode.Mirror))
+    }
+
+    @Test
+    fun `regrouping is said without a time spent together`() {
+        val summary = PartnerFormat.summary(shared(PairMode.Together))!!
+        assertTrue(summary, summary.startsWith("Regrouping"))
+        assertTrue(summary, !summary.contains("together"))
+    }
+
+    @Test
+    fun `every segment of hers has his target beside it, with the regroup note`() {
+        val s = shared(PairMode.Together)
+        val live = PartnerFormat.bySegment(s)!!
+        assertEquals(WorkoutSegments.of(s.her).size, live.size)
+        assertTrue(live.all { it.target.isNotEmpty() })
+        assertTrue(live.any { it.note?.contains("Alex jogs") == true })
     }
 }

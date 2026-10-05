@@ -134,23 +134,26 @@ private fun BlockRow(
                     Text(text = "↳ $it", style = MaterialTheme.typography.bodyMedium, color = muted)
                 }
             } else {
-                // Shared: one line each, behind each runner's snail and in their colour,
-                // so the two read apart at a glance without a word of "you" or a name.
+                // Shared: two columns, each behind its runner's snail and in their colour,
+                // so the two paces sit level and are compared without reading down.
                 val (who, line) = partner
                 Spacer(Modifier.height(Spacing.xs))
-                PersonLines(
-                    snail = { YouSnail(size = 18.dp) },
-                    detail = block.detail,
-                    recovery = block.recovery,
-                    color = SnailTheme.you.fill,
-                )
-                Spacer(Modifier.height(Spacing.xs))
-                PersonLines(
-                    snail = { PartnerSnail(who.id, who.name, size = 18.dp) },
-                    detail = line.detail,
-                    recovery = line.recovery,
-                    color = SnailTheme.person(who.id).fill,
-                )
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                    PersonLines(
+                        snail = { YouSnail(size = 18.dp) },
+                        detail = block.detail,
+                        recovery = block.recovery,
+                        color = SnailTheme.you.fill,
+                        modifier = Modifier.weight(1f),
+                    )
+                    PersonLines(
+                        snail = { PartnerSnail(who.id, who.name, size = 18.dp) },
+                        detail = line.detail,
+                        recovery = line.recovery,
+                        color = SnailTheme.person(who.id).fill,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
                 line.note?.let {
                     Spacer(Modifier.height(Spacing.xs))
                     Text(text = it, style = MaterialTheme.typography.bodySmall, color = muted)
@@ -167,10 +170,11 @@ private fun PersonLines(
     detail: String,
     recovery: String?,
     color: Color,
+    modifier: Modifier = Modifier,
 ) {
-    Row(verticalAlignment = Alignment.Top) {
+    Row(modifier = modifier, verticalAlignment = Alignment.Top) {
         snail()
-        Spacer(Modifier.width(Spacing.s))
+        Spacer(Modifier.width(Spacing.xs))
         Column {
             Text(
                 text = detail.ifEmpty { "—" },
