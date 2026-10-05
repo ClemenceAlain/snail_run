@@ -7,6 +7,12 @@ import androidx.room.testing.MigrationTestHelper
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import io.snailrun.data.db.BestEffortEntity
+import io.snailrun.data.db.CoachWeekEntity
+import io.snailrun.domain.coach.RaceGoal
+import io.snailrun.domain.coach.TrainingPlan
+import io.snailrun.domain.coach.Vma
+import io.snailrun.domain.coach.VmaSource
+import java.time.LocalDate
 import io.snailrun.domain.coach.CoachBaseline
 import io.snailrun.data.db.RunEntity
 import io.snailrun.data.db.SnailDatabase
@@ -116,7 +122,16 @@ class DatabaseBackupTest {
                 recordedOnEpochDay = 20_350,
             ),
             baselineAsked = true,
+            plan = TrainingPlan(
+                startWeek = LocalDate.of(2026, 10, 5),
+                race = RaceGoal(10_000, LocalDate.of(2026, 11, 29)),
+                targetTimeMs = 45 * 60_000L,
+                sessionsPerWeek = 3,
+                createdOn = LocalDate.of(2026, 10, 5),
+            ),
+            vma = Vma(14.2, LocalDate.of(2026, 10, 6), VmaSource.Test, testRunId = 9),
         )
+        live.coachWeekDao().upsert(CoachWeekEntity(20_360L, "{}", 1L))
 
         val (uri, _) = backUpToFile()
         // A new phone: the runs are gone and so is everything the coach knew.
@@ -135,6 +150,12 @@ class DatabaseBackupTest {
         assertEquals(10_000, coach.baseline?.raceDistanceMeters)
         assertEquals(45 * 60_000L, coach.baseline?.raceDurationMs)
         assertEquals(20_350L, coach.baseline?.recordedOnEpochDay)
+        assertEquals(LocalDate.of(2026, 11, 29), coach.plan?.race?.date)
+        assertEquals(45 * 60_000L, coach.plan?.targetTimeMs)
+        assertEquals(14.2, coach.vma?.kmh ?: 0.0, 1e-9)
+        assertEquals(9L, coach.vma?.testRunId)
+        // Past weeks are in the database file, so they come back with it.
+        assertEquals("{}", reopened().coachWeekDao().week(20_360L)?.body)
     }
 
     @Test

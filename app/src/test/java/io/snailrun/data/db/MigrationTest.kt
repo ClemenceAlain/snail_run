@@ -143,6 +143,56 @@ class MigrationTest {
         db.close()
     }
 
+    @Test
+    fun `version 3 upgrades to 4 with an empty table of coach weeks`() {
+        helper.createDatabase(DB_NAME, 3).use { db ->
+            db.execSQL(
+                """
+                INSERT INTO runs (
+                    id, activityType, startedAtEpochMs, endedAtEpochMs, timeZoneId,
+                    localDate, distanceMeters, elapsedTimeMs, movingTimeMs,
+                    avgPaceSecPerKm, elevationGainM, elevationLossM, pointCount,
+                    minLat, maxLat, minLon, maxLon, title, note, source, status,
+                    distanceMilestonesAnnounced, lastTimeAnnouncedActiveMs, gpxExportedUri,
+                    smootherVersion, workoutType
+                ) VALUES (
+                    3, 'RUN', 1700000000000, 1700000600000, 'Europe/Paris',
+                    '2023-11-14', 5000.0, 600000, 600000,
+                    200.0, 12.0, 8.0, 601,
+                    48.85, 48.87, 2.35, 2.36, NULL, NULL, 'RECORDED', 'COMPLETE',
+                    3, 0, NULL, 1, 'Tempo'
+                )
+                """.trimIndent()
+            )
+        }
+
+        val db = helper.runMigrationsAndValidate(DB_NAME, 4, true, SnailDatabase.MIGRATION_3_4)
+
+        db.query("SELECT distanceMeters, workoutType FROM runs WHERE id = 3").use { cursor ->
+            assertTrue("the run did not survive the migration", cursor.moveToFirst())
+            assertEquals(5000.0, cursor.getDouble(0), 0.0)
+            assertEquals("Tempo", cursor.getString(1))
+        }
+        db.query("SELECT COUNT(*) FROM coach_weeks").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+        }
+        db.close()
+    }
+
+    @Test
+    fun `version 1 upgrades all the way to 4`() {
+        helper.createDatabase(DB_NAME, 1).close()
+        helper.runMigrationsAndValidate(
+            DB_NAME,
+            4,
+            true,
+            SnailDatabase.MIGRATION_1_2,
+            SnailDatabase.MIGRATION_2_3,
+            SnailDatabase.MIGRATION_3_4,
+        ).close()
+    }
+
     private companion object {
         const val DB_NAME = "migration-test.db"
     }

@@ -14,6 +14,11 @@ import io.snailrun.domain.coach.CoachBaseline
 import io.snailrun.domain.coach.PairMode
 import io.snailrun.domain.coach.Pairing
 import io.snailrun.domain.coach.Partner
+import io.snailrun.domain.coach.RaceGoal
+import io.snailrun.domain.coach.TrainingPlan
+import io.snailrun.domain.coach.Vma
+import io.snailrun.domain.coach.VmaSource
+import java.time.LocalDate
 import io.snailrun.domain.voice.VoiceConfig
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -81,6 +86,10 @@ data class CoachSettings(
      * partner with it, and putting the week back brings both home.
      */
     val pairings: Map<Long, Pairing> = emptyMap(),
+    /** The plan the runner started in the Coach tab. Null until they start one. */
+    val plan: TrainingPlan? = null,
+    /** Their VMA, typed in or measured by the six-minute test. */
+    val vma: Vma? = null,
 )
 
 /**
@@ -171,6 +180,8 @@ fun CoachSettings.toBackupRows(): Map<String, String> = buildMap {
     put("baseline_asked", baselineAsked.toString())
     PartnerCodec.encode(partners).takeIf { it.isNotEmpty() }?.let { put("partners", it) }
     PairingCodec.encode(pairings).takeIf { it.isNotEmpty() }?.let { put("pairings", it) }
+    plan?.let { put("plan", TrainingPlans.encode(it)) }
+    vma?.let { put("vma", CoachVmas.encode(it)) }
 }
 
 fun coachSettingsFrom(rows: Map<String, String>): CoachSettings = CoachSettings(
@@ -182,7 +193,68 @@ fun coachSettingsFrom(rows: Map<String, String>): CoachSettings = CoachSettings(
     baselineAsked = rows["baseline_asked"].toBoolean(),
     partners = PartnerCodec.decode(rows["partners"]),
     pairings = PairingCodec.decode(rows["pairings"]),
+    plan = TrainingPlans.decode(rows["plan"]),
+    vma = CoachVmas.decode(rows["vma"]),
 )
+
+/**
+ * `1,startDay,raceM,raceDay,targetMs,sessions,createdDay`, zero for absent.
+ *
+ * The leading version is there for the day a field is added: a decoder that sees a
+ * version it does not know reads no plan, and the Coach tab offers to start one, rather
+ * than reading a plan that means something else.
+ */
+internal object TrainingPlans {
+
+    fun encode(plan: TrainingPlan): String = listOf(
+        1L,
+        plan.startWeek.toEpochDay(),
+        (plan.race?.distanceMeters ?: 0).toLong(),
+        plan.race?.date?.toEpochDay() ?: 0L,
+        plan.targetTimeMs ?: 0L,
+        plan.sessionsPerWeek.toLong(),
+        plan.createdOn.toEpochDay(),
+    ).joinToString(",")
+
+    fun decode(raw: String?): TrainingPlan? {
+        if (raw.isNullOrBlank()) return null
+        val n = raw.split(",").map { it.trim().toLongOrNull() ?: return null }
+        if (n.size != 7 || n[0] != 1L) return null
+        val race = if (n[2] > 0 && n[3] != 0L) RaceGoal(n[2].toInt(), LocalDate.ofEpochDay(n[3])) else null
+        return TrainingPlan(
+            startWeek = LocalDate.ofEpochDay(n[1]),
+            race = race,
+            targetTimeMs = n[4].takeIf { it > 0 },
+            sessionsPerWeek = n[5].toInt().coerceIn(TrainingPlan.MIN_SESSIONS, TrainingPlan.MAX_SESSIONS),
+            createdOn = LocalDate.ofEpochDay(n[6]),
+        )
+    }
+}
+
+/** `1,tenthsOfKmh,day,Test|Typed,runId`, zero run id for none. */
+internal object CoachVmas {
+
+    fun encode(vma: Vma): String = listOf(
+        "1",
+        Math.round(vma.kmh * 10).toString(),
+        vma.measuredOn.toEpochDay().toString(),
+        vma.source.name,
+        (vma.testRunId ?: 0L).toString(),
+    ).joinToString(",")
+
+    fun decode(raw: String?): Vma? {
+        if (raw.isNullOrBlank()) return null
+        val p = raw.split(",").map(String::trim)
+        if (p.size != 5 || p[0] != "1") return null
+        val tenths = p[1].toLongOrNull()?.takeIf { it > 0 } ?: return null
+        return Vma(
+            kmh = tenths / 10.0,
+            measuredOn = LocalDate.ofEpochDay(p[2].toLongOrNull() ?: return null),
+            source = runCatching { VmaSource.valueOf(p[3]) }.getOrNull() ?: return null,
+            testRunId = p[4].toLongOrNull()?.takeIf { it > 0 },
+        )
+    }
+}
 
 /**
  * `runsPerWeek,weeklyM,longestM,raceM,raceMs,raceDay,recordedDay`
@@ -331,6 +403,19 @@ class SettingsRepository(private val context: Context) {
         if (encoded.isEmpty()) prefs.remove(COACH_PAIRINGS) else prefs[COACH_PAIRINGS] = encoded
     }
 
+    /**
+     * Starts a plan, or drops it. A new plan also forgets the old one's rearranged
+     * weeks: they were moves inside a plan that no longer exists.
+     */
+    suspend fun setCoachPlan(plan: TrainingPlan?) = edit {
+        it.remove(COACH_DAY_ORDERS)
+        if (plan == null) it.remove(COACH_PLAN) else it[COACH_PLAN] = TrainingPlans.encode(plan)
+    }
+
+    suspend fun setCoachVma(vma: Vma?) = edit {
+        if (vma == null) it.remove(COACH_VMA) else it[COACH_VMA] = CoachVmas.encode(vma)
+    }
+
     suspend fun setCoachNudgeOffPace(value: Boolean) = edit { it[COACH_NUDGE_OFF_PACE] = value }
 
     /**
@@ -365,6 +450,10 @@ class SettingsRepository(private val context: Context) {
         prefs.remove(COACH_PAIRINGS)
         PartnerCodec.encode(coach.partners).takeIf { it.isNotEmpty() }?.let { prefs[COACH_PARTNERS] = it }
         PairingCodec.encode(coach.pairings).takeIf { it.isNotEmpty() }?.let { prefs[COACH_PAIRINGS] = it }
+        prefs.remove(COACH_PLAN)
+        prefs.remove(COACH_VMA)
+        coach.plan?.let { prefs[COACH_PLAN] = TrainingPlans.encode(it) }
+        coach.vma?.let { prefs[COACH_VMA] = CoachVmas.encode(it) }
         coach.targetDistanceMeters?.let { prefs[COACH_TARGET_DISTANCE] = it }
         coach.targetDateEpochDay?.let { prefs[COACH_TARGET_DATE] = it }
         DayOrders.encode(coach.dayOrders).takeIf { it.isNotEmpty() }
@@ -408,6 +497,8 @@ class SettingsRepository(private val context: Context) {
             baselineAsked = this[COACH_BASELINE_ASKED] ?: false,
             partners = PartnerCodec.decode(this[COACH_PARTNERS]),
             pairings = PairingCodec.decode(this[COACH_PAIRINGS]),
+            plan = TrainingPlans.decode(this[COACH_PLAN]),
+            vma = CoachVmas.decode(this[COACH_VMA]),
         ),
     )
 
@@ -432,5 +523,7 @@ class SettingsRepository(private val context: Context) {
         val COACH_BASELINE_ASKED = booleanPreferencesKey("coach_baseline_asked")
         val COACH_PARTNERS = stringPreferencesKey("coach_partners")
         val COACH_PAIRINGS = stringPreferencesKey("coach_pairings")
+        val COACH_PLAN = stringPreferencesKey("coach_plan")
+        val COACH_VMA = stringPreferencesKey("coach_vma")
     }
 }

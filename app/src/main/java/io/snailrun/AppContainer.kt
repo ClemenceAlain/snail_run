@@ -13,6 +13,7 @@ import io.snailrun.data.location.LocationSource
 import io.snailrun.data.location.PlatformLocationSource
 import io.snailrun.data.prefs.DemoSettings
 import io.snailrun.data.prefs.SettingsRepository
+import io.snailrun.data.repo.CoachWeekStore
 import io.snailrun.data.repo.RunRepository
 import io.snailrun.data.voice.AndroidVoiceAnnouncer
 import io.snailrun.data.voice.ResourceSpeechVocabulary
@@ -40,6 +41,8 @@ class AppContainer(private val context: Context) {
     val settings: SettingsRepository by lazy { SettingsRepository(context) }
 
     val runRepository: RunRepository by lazy { RunRepository(database.runDao(), clock) }
+
+    val coachWeeks: CoachWeekStore by lazy { CoachWeekStore(database.coachWeekDao(), clock) }
 
     val locationSource: LocationSource by lazy { PlatformLocationSource(context) }
 

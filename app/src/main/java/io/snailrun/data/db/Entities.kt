@@ -164,3 +164,23 @@ data class WorkoutSegmentEntity(
     val repIndex: Int?,
     val repCount: Int?,
 )
+
+/**
+ * A coach week as it was planned, kept once the week is over.
+ *
+ * The future is worked out afresh every time it is shown; the past is not, because the
+ * plan that would be worked out for last week today is not the one the runner was
+ * given — their VMA has moved, the template may have, and a history that rewrites
+ * itself is not a history. So the current week is written here each time it is planned,
+ * and the row stops changing when the week ends.
+ *
+ * One encoded row per week rather than tables of days and steps: nothing ever queries
+ * inside a week, it is only ever read back whole.
+ */
+@Entity(tableName = "coach_weeks")
+data class CoachWeekEntity(
+    @PrimaryKey val weekStartEpochDay: Long,
+    /** The week as JSON. See `CoachWeekCodec`. */
+    val body: String,
+    val savedAtEpochMs: Long,
+)

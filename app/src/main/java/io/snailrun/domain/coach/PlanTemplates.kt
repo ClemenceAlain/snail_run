@@ -256,6 +256,10 @@ object PlanTemplates {
     /** The base cycle a long run-up to a race repeats: the 10 km block's first month. */
     val Cycle = PlanTemplate(name = "Base cycle", distanceM = 10_000, weeks = TenK.weeks.take(4))
 
+    /** For reading a saved week back. Null for a template that no longer exists. */
+    fun byName(name: String): PlanTemplate? =
+        listOf(FiveK, TenK, Half, Marathon, Cycle).firstOrNull { it.name == name }
+
     fun forDistance(meters: Int): PlanTemplate = when {
         meters <= 5_000 -> FiveK
         meters <= 10_000 -> TenK

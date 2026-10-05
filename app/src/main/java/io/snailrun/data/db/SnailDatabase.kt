@@ -14,6 +14,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SplitEntity::class,
         BestEffortEntity::class,
         WorkoutSegmentEntity::class,
+        CoachWeekEntity::class,
     ],
     version = SnailDatabase.SCHEMA_VERSION,
     exportSchema = true,
@@ -22,6 +23,8 @@ abstract class SnailDatabase : RoomDatabase() {
 
     abstract fun runDao(): RunDao
 
+    abstract fun coachWeekDao(): CoachWeekDao
+
     companion object {
         /**
          * The one place the schema version is written. The annotation above reads it, and
@@ -29,7 +32,7 @@ abstract class SnailDatabase : RoomDatabase() {
          * that drifted from the annotation would let that check pass on a file this
          * build cannot read.
          */
-        const val SCHEMA_VERSION = 3
+        const val SCHEMA_VERSION = 4
 
         const val FILE_NAME = "snail-run.db"
 
@@ -75,11 +78,27 @@ abstract class SnailDatabase : RoomDatabase() {
             }
         }
 
+        /** Saved coach weeks. A new table and nothing else: no run is touched. */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS coach_weeks (
+                        weekStartEpochDay INTEGER NOT NULL,
+                        body TEXT NOT NULL,
+                        savedAtEpochMs INTEGER NOT NULL,
+                        PRIMARY KEY (weekStartEpochDay)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun build(context: Context): SnailDatabase =
             Room.databaseBuilder(context, SnailDatabase::class.java, FILE_NAME)
                 // Concurrent reads during a run's 10-second insert flushes.
                 .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
     }
 }
