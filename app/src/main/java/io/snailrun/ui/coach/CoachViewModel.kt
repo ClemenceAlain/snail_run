@@ -12,6 +12,8 @@ import io.snailrun.data.repo.RunRepository
 import io.snailrun.domain.coach.Baselines
 import io.snailrun.domain.coach.CoachBaseline
 import io.snailrun.domain.coach.Fitness
+import io.snailrun.domain.coach.Pairing
+import io.snailrun.domain.coach.Partner
 import io.snailrun.domain.coach.RaceGoal
 import io.snailrun.domain.coach.WeekPlan
 import io.snailrun.domain.coach.WeekPlanner
@@ -43,6 +45,9 @@ data class CoachUiState(
      */
     val askBaseline: Boolean = false,
     val editingBaseline: Boolean = false,
+    val partners: List<Partner> = emptyList(),
+    /** Shared sessions, by the day they are now shown on. */
+    val pairings: Map<LocalDate, Pairing> = emptyMap(),
 ) {
     val fitness get() = weeks.firstOrNull()?.fitness
     val week get() = weeks.getOrNull(weekIndex)
@@ -145,6 +150,18 @@ class CoachViewModel(
         }
     }
 
+    /** Shares the session shown on [date], or stops sharing it with null. */
+    fun pair(date: LocalDate, pairing: Pairing?) {
+        val planned = _ui.value.weeks.firstNotNullOfOrNull { CoachPlans.plannedDay(it, date) } ?: return
+        viewModelScope.launch {
+            settings.setPairing(
+                plannedEpochDay = planned.toEpochDay(),
+                pairing = pairing,
+                keepFrom = today.with(TemporalAdjusters.previousOrSame(firstDayOfWeek())).toEpochDay(),
+            )
+        }
+    }
+
     private val recently get() = today.minusDays(Baselines.WINDOW_DAYS).toString()
 
     private fun build(
@@ -163,8 +180,15 @@ class CoachViewModel(
             baseline = saved.baseline,
             askBaseline = !saved.baselineAsked && saved.baseline == null &&
                 runs.count { it.localDate >= recently } < ENOUGH_HISTORY,
+            partners = saved.partners,
+            pairings = weeks.flatMap { week ->
+                week.days.mapNotNull { day ->
+                    CoachPlans.pairingOn(week, day.date, saved)?.let { day.date to it }
+                }
+            }.toMap(),
         )
     }
+
 
     /**
      * Monday across most of Europe, Sunday across much of the rest. Read from the locale

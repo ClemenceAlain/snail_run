@@ -213,6 +213,7 @@ class MainActivity : ComponentActivity() {
             onArmSession = viewModel::armSession,
             onNextSegment = { RunRecordingService.nextSegment(this) },
             onEndSession = { RunRecordingService.endSession(this) },
+            todaysShared = ui.todaysShared,
         )
 
         ui.unfinishedRun?.let { unfinished ->
@@ -310,6 +311,16 @@ class MainActivity : ComponentActivity() {
             onEditBaseline = viewModel::editBaseline,
             onSaveBaseline = viewModel::saveBaseline,
             today = LocalDate.now(),
+            onPair = viewModel::pair,
+            // Plain text through whatever the phone has — a message app, mostly. The
+            // partner has no app to send anything richer to.
+            onShareText = { text ->
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, text)
+                }
+                startActivity(Intent.createChooser(send, null))
+            },
         )
     }
 
@@ -539,6 +550,8 @@ class MainActivity : ComponentActivity() {
                     scope.launch { container.settings.setCoachTarget(meters, day) }
                 },
                 onCoachNudge = { scope.launch { container.settings.setCoachNudgeOffPace(it) } },
+                onSavePartner = { scope.launch { container.settings.savePartner(it) } },
+                onRemovePartner = { scope.launch { container.settings.removePartner(it) } },
                 onDemoEnabled = { scope.launch { container.settings.setDemoEnabled(it) } },
                 onDemoSpeedFactor = { scope.launch { container.settings.setDemoSpeedFactor(it) } },
                 onBackup = { backupPicker.launch(DatabaseBackup.suggestedFileName(nowStamp())) },

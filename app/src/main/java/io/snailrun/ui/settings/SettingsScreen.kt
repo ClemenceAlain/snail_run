@@ -62,6 +62,8 @@ data class SettingsActions(
     /** Distance and date together, or both null to clear the target. */
     val onCoachTarget: (Int?, Long?) -> Unit,
     val onCoachNudge: (Boolean) -> Unit,
+    val onSavePartner: (io.snailrun.domain.coach.Partner) -> Unit = {},
+    val onRemovePartner: (Int) -> Unit = {},
     val onDemoEnabled: (Boolean) -> Unit,
     val onDemoSpeedFactor: (Int) -> Unit,
     val onBackup: () -> Unit,
@@ -269,6 +271,13 @@ fun SettingsScreen(
                     }
                 }
             }
+
+            Spacer(Modifier.height(Spacing.l))
+            PartnersSection(
+                partners = settings.coach.partners,
+                onSave = actions.onSavePartner,
+                onRemove = actions.onRemovePartner,
+            )
         }
 
         if (showRaceDatePicker) {

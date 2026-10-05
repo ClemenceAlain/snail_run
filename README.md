@@ -596,6 +596,27 @@ recomputed from the history every time the tab is opened, so it cannot claim on 
 that you still owe it a tempo you have since run. Completion is inferred the same way: a
 run recorded on a planned day strikes that day through.
 
+### Running it with someone
+
+A partner is a name and a VMA under Settings → Coach — not a second user. They have no
+runs and no plan here; the app only translates the days you share. Open a day, pick them,
+and their version of every block appears under yours.
+
+- **Their paces are your session at their speed.** Each of your paces is read back to the
+  fraction of your VDOT it was written at, then forward at theirs. VMA becomes VDOT through
+  the same oxygen-cost curve as everything else (`Partners.vdotOf`), so there is no second
+  model. Mirror mode keeps the same reps, distances and times.
+- **Time it so we regroup** (`PartnerPlan.together`) runs a clock for each of you. Easy
+  running and the jogs are shared at one pace where your bands overlap, or where the faster
+  one only has to drop thirty seconds a kilometre below theirs. Reps stay as they are, at
+  your own paces. On distance reps the faster one finishes early and jogs the gap, so you
+  start the next rep together. On timed reps you start and stop together, and the sheet
+  says how far ahead the faster one ends, so they know how far to come back. A tempo is
+  run for your time, so you finish it together.
+- **Only the shared day changes.** The pairing is stored against the day the session was
+  planned for, so it follows a drag. Removing the partner forgets it. **Send … the
+  session** shares their version as plain text.
+
 ## Auto-pause
 
 Off by default; Settings → While recording. Two thresholds with a dwell on each, because

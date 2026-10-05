@@ -38,6 +38,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import io.snailrun.domain.coach.CoachBaseline
+import io.snailrun.domain.coach.Pairing
+import io.snailrun.domain.coach.SharedSession
 import io.snailrun.domain.coach.PlannedDay
 import io.snailrun.domain.coach.Races
 import io.snailrun.domain.coach.WeekPlan
@@ -54,6 +56,7 @@ import io.snailrun.ui.components.SnailCard
 import io.snailrun.ui.format.UiLocale
 import io.snailrun.ui.format.RunFormat
 import io.snailrun.ui.format.SessionFormat
+import io.snailrun.ui.format.PartnerFormat
 import io.snailrun.ui.theme.SnailType
 import io.snailrun.ui.theme.Spacing
 import java.time.LocalDate
@@ -88,6 +91,9 @@ private val CoachHelp = listOf(
         "off the day before anything hard.",
     "The paces these sessions are written in live under Runs → Records, where the rest " +
         "of what you are currently capable of is.",
+    "Running a session with someone? Add them by VMA under Settings → Coach, then open the " +
+        "day and pick them. Their paces appear under yours; switch on regrouping and the " +
+        "session is timed so you keep meeting, and the faster one runs the gaps.",
 )
 
 @Composable
@@ -103,6 +109,8 @@ fun CoachScreen(
     onSaveBaseline: (CoachBaseline?) -> Unit,
     today: LocalDate,
     modifier: Modifier = Modifier,
+    onPair: (LocalDate, Pairing?) -> Unit = { _, _ -> },
+    onShareText: (String) -> Unit = {},
 ) {
     val plan = state.week
     if (!state.loaded || plan == null) {
@@ -111,13 +119,44 @@ fun CoachScreen(
     }
 
     plan.days.firstOrNull { it.date == state.expanded }?.let { day ->
+        val pairing = state.pairings[day.date]
+        val herVdot = plan.fitness?.vdot ?: state.fitness?.vdot
+        val shared = remember(day.workout, herVdot, pairing, state.partners) {
+            SharedSession.of(
+                workout = day.workout,
+                herVdot = herVdot,
+                partner = state.partners.firstOrNull { it.id == pairing?.partnerId },
+                mode = pairing?.mode,
+            )
+        }
+        // In Together mode the runner's own session can change too — a shared jog pace,
+        // a longer jog where she is the quicker one — and that version is the one run.
+        val herWorkout = shared?.her ?: day.workout
         SessionSheet(
             workout = if (day.workout.type == WorkoutType.Rest && day.strength != null) {
                 day.strength
             } else {
-                day.workout
+                herWorkout
             },
             onDismiss = { onExpand(day.date) },
+            partnerName = shared?.partner?.name,
+            partnerLines = remember(shared) { shared?.let { PartnerFormat.lines(it) }.orEmpty() },
+            sharing = if (day.workout.type.isRun && !day.done) {
+                {
+                    PairingControls(
+                        partners = state.partners,
+                        pairing = pairing,
+                        shared = shared,
+                        canTranslate = herVdot != null,
+                        onPair = { onPair(day.date, it) },
+                        onShare = {
+                            shared?.let { onShareText(PartnerFormat.shareText(it, dayformat().format(day.date))) }
+                        },
+                    )
+                }
+            } else {
+                null
+            },
             subtitle = dayformat().format(day.date),
             // A rest day with strength on it has the strength as its only content, so it
             // is promoted rather than shown under an empty "Rest".
@@ -127,7 +166,7 @@ fun CoachScreen(
             action = when {
                 day.workout.type != WorkoutType.Rest -> "Run this" to {
                     onExpand(day.date)
-                    onRunSession(day.workout)
+                    onRunSession(herWorkout)
                 }
                 day.strength != null -> "Start this" to {
                     onExpand(day.date)
@@ -194,6 +233,9 @@ fun CoachScreen(
             DraggableWeek(
                 plan = plan,
                 today = today,
+                partnerOn = { date ->
+                    state.pairings[date]?.let { p -> state.partners.firstOrNull { it.id == p.partnerId }?.name }
+                },
                 onExpand = onExpand,
                 onMove = { from, to -> onMove(plan.weekStart, from, to) },
             )
@@ -236,6 +278,7 @@ fun CoachScreen(
 private fun DraggableWeek(
     plan: WeekPlan,
     today: LocalDate,
+    partnerOn: (LocalDate) -> String?,
     onExpand: (LocalDate) -> Unit,
     onMove: (Int, Int) -> Unit,
 ) {
@@ -271,6 +314,7 @@ private fun DraggableWeek(
             DayRow(
                 day = day,
                 today = today,
+                partner = partnerOn(day.date),
                 lifted = isDragged,
                 onClick = {
                     if (swallowClick) swallowClick = false else onExpand(day.date)
@@ -473,6 +517,7 @@ private fun RaceCard(plan: WeekPlan, state: CoachUiState) {
 private fun DayRow(
     day: PlannedDay,
     today: LocalDate,
+    partner: String?,
     lifted: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -516,6 +561,7 @@ private fun DayRow(
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                     Badge(day.workout.type.label, day.workout.type.badgeTone)
                     if (day.strength != null) Badge("Strength", BadgeTone.Other)
+                    if (partner != null && !rest) Badge("With $partner", BadgeTone.Quiet)
                     // Replaces a strikethrough, which is easy to miss at a glance and
                     // reads as an error the rest of the time. Nothing is stored to say
                     // the day is done: there is a run on it, and that is the whole test.

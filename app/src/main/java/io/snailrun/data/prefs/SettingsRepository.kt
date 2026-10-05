@@ -11,6 +11,9 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import io.snailrun.domain.coach.CoachBaseline
+import io.snailrun.domain.coach.PairMode
+import io.snailrun.domain.coach.Pairing
+import io.snailrun.domain.coach.Partner
 import io.snailrun.domain.voice.VoiceConfig
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -70,7 +73,60 @@ data class CoachSettings(
      * them is an answer: without this the card would ask again on every visit.
      */
     val baselineAsked: Boolean = false,
+    /** People who run some sessions alongside, by VMA. See [Partner]. */
+    val partners: List<Partner> = emptyList(),
+    /**
+     * Sessions shared with a partner, keyed on the epoch day the session was *planned*
+     * for — before any rearranging — so a session dragged to another day takes its
+     * partner with it, and putting the week back brings both home.
+     */
+    val pairings: Map<Long, Pairing> = emptyMap(),
 )
+
+/**
+ * `1;17.5;Alex|2;14.0;Sam`
+ *
+ * The name goes last so that it is the one field allowed to hold anything but the two
+ * separators, which are taken out of it on the way in.
+ */
+internal object PartnerCodec {
+
+    fun clean(name: String): String = name.replace("|", " ").replace(";", " ").trim().take(30)
+
+    fun encode(partners: List<Partner>): String =
+        partners.joinToString("|") { "${it.id};${it.vmaKmh};${clean(it.name)}" }
+
+    fun decode(raw: String?): List<Partner> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return raw.split("|").mapNotNull { entry ->
+            val parts = entry.split(";", limit = 3)
+            if (parts.size != 3) return@mapNotNull null
+            val id = parts[0].toIntOrNull() ?: return@mapNotNull null
+            val vma = parts[1].toDoubleOrNull() ?: return@mapNotNull null
+            Partner(id, parts[2], vma)
+        }
+    }
+}
+
+/** `20353:1:Together|20356:2:Mirror` — planned day, partner, mode. */
+internal object PairingCodec {
+
+    fun encode(pairings: Map<Long, Pairing>): String =
+        pairings.entries.sortedBy { it.key }
+            .joinToString("|") { (day, p) -> "$day:${p.partnerId}:${p.mode.name}" }
+
+    fun decode(raw: String?): Map<Long, Pairing> {
+        if (raw.isNullOrBlank()) return emptyMap()
+        return raw.split("|").mapNotNull { entry ->
+            val parts = entry.split(":")
+            if (parts.size != 3) return@mapNotNull null
+            val day = parts[0].toLongOrNull() ?: return@mapNotNull null
+            val partner = parts[1].toIntOrNull() ?: return@mapNotNull null
+            val mode = runCatching { PairMode.valueOf(parts[2]) }.getOrNull() ?: return@mapNotNull null
+            day to Pairing(partner, mode)
+        }.toMap()
+    }
+}
 
 /**
  * `20353:3,0,1,2,4,5,6|20360:0,1,2,3,4,5,6`
@@ -113,6 +169,8 @@ fun CoachSettings.toBackupRows(): Map<String, String> = buildMap {
     put("nudge_off_pace", nudgeOffPace.toString())
     baseline?.let { put("baseline", CoachBaselines.encode(it)) }
     put("baseline_asked", baselineAsked.toString())
+    PartnerCodec.encode(partners).takeIf { it.isNotEmpty() }?.let { put("partners", it) }
+    PairingCodec.encode(pairings).takeIf { it.isNotEmpty() }?.let { put("pairings", it) }
 }
 
 fun coachSettingsFrom(rows: Map<String, String>): CoachSettings = CoachSettings(
@@ -122,6 +180,8 @@ fun coachSettingsFrom(rows: Map<String, String>): CoachSettings = CoachSettings(
     nudgeOffPace = rows["nudge_off_pace"].toBoolean(),
     baseline = CoachBaselines.decode(rows["baseline"]),
     baselineAsked = rows["baseline_asked"].toBoolean(),
+    partners = PartnerCodec.decode(rows["partners"]),
+    pairings = PairingCodec.decode(rows["pairings"]),
 )
 
 /**
@@ -232,6 +292,45 @@ class SettingsRepository(private val context: Context) {
         if (encoded.isEmpty()) it.remove(COACH_DAY_ORDERS) else it[COACH_DAY_ORDERS] = encoded
     }
 
+    /** Adds the partner, or replaces the one with the same id. */
+    suspend fun savePartner(partner: Partner) = edit {
+        val current = PartnerCodec.decode(it[COACH_PARTNERS])
+        val clean = partner.copy(name = PartnerCodec.clean(partner.name))
+        val next = if (current.any { p -> p.id == clean.id }) {
+            current.map { p -> if (p.id == clean.id) clean else p }
+        } else {
+            current + clean
+        }
+        it[COACH_PARTNERS] = PartnerCodec.encode(next)
+    }
+
+    /** Forgets the partner, and every session that was shared with them. */
+    suspend fun removePartner(id: Int) = edit {
+        val next = PartnerCodec.decode(it[COACH_PARTNERS]).filterNot { p -> p.id == id }
+        if (next.isEmpty()) it.remove(COACH_PARTNERS) else it[COACH_PARTNERS] = PartnerCodec.encode(next)
+        val pairings = PairingCodec.decode(it[COACH_PAIRINGS]).filterValues { p -> p.partnerId != id }
+        writePairings(it, pairings)
+    }
+
+    /**
+     * Shares a session, or stops sharing it, and forgets sessions now in the past.
+     * [plannedEpochDay] is the day the session was planned on, before any reordering.
+     */
+    suspend fun setPairing(plannedEpochDay: Long, pairing: Pairing?, keepFrom: Long) = edit {
+        val current = PairingCodec.decode(it[COACH_PAIRINGS]).toMutableMap()
+        if (pairing == null) current.remove(plannedEpochDay) else current[plannedEpochDay] = pairing
+        current.keys.retainAll { day -> day >= keepFrom }
+        writePairings(it, current)
+    }
+
+    private fun writePairings(
+        prefs: androidx.datastore.preferences.core.MutablePreferences,
+        pairings: Map<Long, Pairing>,
+    ) {
+        val encoded = PairingCodec.encode(pairings)
+        if (encoded.isEmpty()) prefs.remove(COACH_PAIRINGS) else prefs[COACH_PAIRINGS] = encoded
+    }
+
     suspend fun setCoachNudgeOffPace(value: Boolean) = edit { it[COACH_NUDGE_OFF_PACE] = value }
 
     /**
@@ -262,6 +361,10 @@ class SettingsRepository(private val context: Context) {
         prefs.remove(COACH_TARGET_DATE)
         prefs.remove(COACH_DAY_ORDERS)
         prefs.remove(COACH_BASELINE)
+        prefs.remove(COACH_PARTNERS)
+        prefs.remove(COACH_PAIRINGS)
+        PartnerCodec.encode(coach.partners).takeIf { it.isNotEmpty() }?.let { prefs[COACH_PARTNERS] = it }
+        PairingCodec.encode(coach.pairings).takeIf { it.isNotEmpty() }?.let { prefs[COACH_PAIRINGS] = it }
         coach.targetDistanceMeters?.let { prefs[COACH_TARGET_DISTANCE] = it }
         coach.targetDateEpochDay?.let { prefs[COACH_TARGET_DATE] = it }
         DayOrders.encode(coach.dayOrders).takeIf { it.isNotEmpty() }
@@ -303,6 +406,8 @@ class SettingsRepository(private val context: Context) {
             nudgeOffPace = this[COACH_NUDGE_OFF_PACE] ?: false,
             baseline = CoachBaselines.decode(this[COACH_BASELINE]),
             baselineAsked = this[COACH_BASELINE_ASKED] ?: false,
+            partners = PartnerCodec.decode(this[COACH_PARTNERS]),
+            pairings = PairingCodec.decode(this[COACH_PAIRINGS]),
         ),
     )
 
@@ -325,5 +430,7 @@ class SettingsRepository(private val context: Context) {
         val COACH_NUDGE_OFF_PACE = booleanPreferencesKey("coach_nudge_off_pace")
         val COACH_BASELINE = stringPreferencesKey("coach_baseline")
         val COACH_BASELINE_ASKED = booleanPreferencesKey("coach_baseline_asked")
+        val COACH_PARTNERS = stringPreferencesKey("coach_partners")
+        val COACH_PAIRINGS = stringPreferencesKey("coach_pairings")
     }
 }

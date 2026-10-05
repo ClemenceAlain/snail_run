@@ -23,6 +23,7 @@ import io.snailrun.domain.coach.Workout
 import io.snailrun.domain.coach.WorkoutSegment
 import io.snailrun.domain.coach.WorkoutSegments
 import io.snailrun.domain.coach.WorkoutType
+import io.snailrun.ui.format.PartnerLine
 import io.snailrun.ui.format.SessionBlock
 import io.snailrun.ui.format.SessionFormat
 import io.snailrun.ui.theme.Spacing
@@ -38,6 +39,10 @@ import io.snailrun.ui.theme.Spacing
  * [currentSegment] is the index the recorder is on, or null when nothing is running. It
  * lights one row and marks the ones behind it as done, which is the whole difference
  * between a plan and a place in a plan.
+ *
+ * [partnerLines], when the session is shared, puts the partner's version of each block
+ * under the runner's, named [partnerName]: one list to read for two people, rather than
+ * two lists to keep in step at the side of a track.
  */
 @Composable
 fun SessionDetail(
@@ -45,6 +50,8 @@ fun SessionDetail(
     modifier: Modifier = Modifier,
     segments: List<WorkoutSegment> = remembered(workout),
     currentSegment: Int? = null,
+    partnerName: String? = null,
+    partnerLines: List<PartnerLine> = emptyList(),
 ) {
     if (workout.type == WorkoutType.Strength) {
         StrengthDetail(workout, modifier)
@@ -65,13 +72,20 @@ fun SessionDetail(
                 repDone = currentSegment
                     ?.takeIf { it in block.range }
                     ?.let { segments.getOrNull(it)?.repIndex },
+                partner = partnerName?.let { name -> partnerLines.getOrNull(index)?.let { name to it } },
             )
         }
     }
 }
 
 @Composable
-private fun BlockRow(block: SessionBlock, current: Boolean, done: Boolean, repDone: Int?) {
+private fun BlockRow(
+    block: SessionBlock,
+    current: Boolean,
+    done: Boolean,
+    repDone: Int?,
+    partner: Pair<String, PartnerLine>? = null,
+) {
     val faded = done && !current
     val accent = MaterialTheme.colorScheme.primary
 
@@ -122,6 +136,24 @@ private fun BlockRow(block: SessionBlock, current: Boolean, done: Boolean, repDo
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+            partner?.let { (name, line) ->
+                val tint = MaterialTheme.colorScheme.tertiary
+                Text(
+                    text = if (line.detail.isEmpty()) name else "$name · ${line.detail}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = tint,
+                )
+                line.recovery?.let {
+                    Text(text = "↳ $it", style = MaterialTheme.typography.bodyMedium, color = tint)
+                }
+                line.note?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }

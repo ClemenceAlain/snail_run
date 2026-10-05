@@ -82,8 +82,12 @@ fun RecordScreen(
     onArmSession: (Workout?) -> Unit = {},
     onNextSegment: () -> Unit = {},
     onEndSession: () -> Unit = {},
+    todaysShared: io.snailrun.domain.coach.SharedSession? = null,
 ) {
     val active = state as? RecordingState.Active
+    val partnerLines = androidx.compose.runtime.remember(todaysShared) {
+        todaysShared?.let { io.snailrun.ui.format.PartnerFormat.lines(it) }.orEmpty()
+    }
 
     // One sheet for the whole screen, whichever card opened it. The session being run
     // and the session being considered are the same thing said at two different moments,
@@ -96,6 +100,10 @@ fun RecordScreen(
             segments = request.segments,
             currentSegment = request.currentSegment,
             subtitle = request.subtitle,
+            // The partner's lines follow the session they were written for, and a sheet
+            // opened on the strength work is not it.
+            partnerName = todaysShared?.partner?.name.takeIf { request.workout.type != WorkoutType.Strength },
+            partnerLines = partnerLines,
         )
     }
 
@@ -150,6 +158,8 @@ fun RecordScreen(
                     detail = SessionDetailRequest(workout = workout)
                 },
                 onStartStrength = onStartStrength,
+                partnerName = todaysShared?.partner?.name,
+                partnerLines = partnerLines,
             )
             Spacer(Modifier.height(Spacing.l))
         }
@@ -221,6 +231,8 @@ private fun TodaysSession(
     onArm: () -> Unit,
     onShowDetail: (Workout) -> Unit,
     onStartStrength: (Workout) -> Unit,
+    partnerName: String? = null,
+    partnerLines: List<io.snailrun.ui.format.PartnerLine> = emptyList(),
 ) {
     SnailCard(
         modifier = Modifier.fillMaxWidth(),
@@ -264,9 +276,9 @@ private fun TodaysSession(
             //
             // Unless there is only one step, in which case the line above has already
             // said it and a second copy of "8.0 km easy" reads as a rendering bug.
-            if (session.steps.size > 1) {
+            if (session.steps.size > 1 || partnerLines.isNotEmpty()) {
                 Spacer(Modifier.height(Spacing.m))
-                SessionDetail(workout = session)
+                SessionDetail(workout = session, partnerName = partnerName, partnerLines = partnerLines)
             }
         }
 

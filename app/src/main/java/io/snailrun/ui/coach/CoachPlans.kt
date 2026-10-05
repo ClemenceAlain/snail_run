@@ -8,6 +8,8 @@ import io.snailrun.domain.coach.CoachRun
 import io.snailrun.domain.coach.Fitness
 import io.snailrun.domain.coach.RaceGoal
 import io.snailrun.domain.coach.RecentEffort
+import io.snailrun.domain.coach.SharedSession
+import io.snailrun.domain.coach.Pairing
 import io.snailrun.domain.coach.WeekPlan
 import io.snailrun.domain.coach.WeekPlanner
 import java.time.DayOfWeek
@@ -65,6 +67,36 @@ object CoachPlans {
             weeks = weeks,
             firstDayOfWeek = firstDayOfWeek,
             orders = saved.dayOrders.mapKeys { LocalDate.ofEpochDay(it.key) },
+        )
+    }
+
+    /**
+     * The day the session now on [date] was planned for, before any dragging.
+     *
+     * Pairings are stored against that day, so they move with the session: the week's
+     * order says where each session came from, and that is all this reads.
+     */
+    fun plannedDay(week: WeekPlan, date: LocalDate): LocalDate? {
+        val position = week.days.indexOfFirst { it.date == date }.takeIf { it >= 0 } ?: return null
+        return week.weekStart.plusDays((week.order?.getOrNull(position) ?: position).toLong())
+    }
+
+    /** The pairing on the session shown on [date], if its partner still exists. */
+    fun pairingOn(week: WeekPlan, date: LocalDate, saved: CoachSettings): Pairing? {
+        val planned = plannedDay(week, date) ?: return null
+        val pairing = saved.pairings[planned.toEpochDay()] ?: return null
+        return pairing.takeIf { p -> saved.partners.any { it.id == p.partnerId } }
+    }
+
+    /** The session on [date], shared — or null when it is not. */
+    fun sharedOn(week: WeekPlan, date: LocalDate, saved: CoachSettings): SharedSession? {
+        val day = week.days.firstOrNull { it.date == date } ?: return null
+        val pairing = pairingOn(week, date, saved) ?: return null
+        return SharedSession.of(
+            workout = day.workout,
+            herVdot = week.fitness?.vdot,
+            partner = saved.partners.firstOrNull { it.id == pairing.partnerId },
+            mode = pairing.mode,
         )
     }
 

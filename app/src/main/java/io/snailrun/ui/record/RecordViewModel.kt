@@ -10,6 +10,7 @@ import io.snailrun.data.prefs.SettingsRepository
 import io.snailrun.data.repo.RunRepository
 import io.snailrun.tracking.RecordingState
 import io.snailrun.domain.coach.Fitness
+import io.snailrun.domain.coach.SharedSession
 import io.snailrun.domain.coach.Workout
 import io.snailrun.domain.coach.WorkoutType
 import io.snailrun.tracking.RunRecorder
@@ -35,6 +36,8 @@ data class RecordUiState(
     val todaysStrength: Workout? = null,
     /** The session that will be started, once the runner has said yes to it. */
     val armedSession: Workout? = null,
+    /** Today's session as shared with a partner, if it is. Its [SharedSession.her] is [todaysSession]. */
+    val todaysShared: SharedSession? = null,
 )
 
 class RecordViewModel(
@@ -74,13 +77,19 @@ class RecordViewModel(
                     today = today,
                     firstDayOfWeek = WeekFields.of(Locale.getDefault()).firstDayOfWeek,
                     weeks = 1,
-                ).firstOrNull()
-                    ?.days
-                    ?.firstOrNull { it.date == today }
-            }.collect { day ->
+                ).firstOrNull()?.let { week ->
+                    week.days.firstOrNull { it.date == today }?.let { day ->
+                        day to CoachPlans.sharedOn(week, today, saved.coach)
+                    }
+                }
+            }.collect { found ->
+                val (day, shared) = found ?: (null to null)
                 _ui.value = _ui.value.copy(
-                    todaysSession = day?.workout?.takeIf { it.type != WorkoutType.Rest },
+                    // Shared and timed to regroup, the runner's own session can differ
+                    // from the plan's, and the one counted through is the one agreed.
+                    todaysSession = (shared?.her ?: day?.workout)?.takeIf { it.type != WorkoutType.Rest },
                     todaysStrength = day?.strength,
+                    todaysShared = shared,
                 )
             }
         }
