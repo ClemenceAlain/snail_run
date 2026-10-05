@@ -25,9 +25,9 @@ data class PlannedDay(
 data class WeekPlan(
     val weekStart: LocalDate,
     val days: List<PlannedDay>,
-    val plannedMeters: Double,
-    val lastWeekMeters: Double,
-    val chronicWeeklyMeters: Double,
+    val plannedMeters: Double = 0.0,
+    val lastWeekMeters: Double = 0.0,
+    val chronicWeeklyMeters: Double = 0.0,
     /** Why the week is this size. The rule that fired, in a sentence. */
     val note: String,
     val phase: Phase? = null,
@@ -48,6 +48,10 @@ data class WeekPlan(
      * has to be at work on Tuesday knows something the planner does not.
      */
     val conflicts: List<String> = emptyList(),
+    /** Where the week sits in the runner's plan. */
+    val position: PlanPosition? = null,
+    /** Read back from a saved week rather than planned now. Cannot be rearranged. */
+    val frozen: Boolean = false,
 )
 
 /**
@@ -530,7 +534,7 @@ object WeekPlanner {
      * the strength work *on* a hard day instead, after the running. Hard days hard is a
      * worse-looking plan and a better-recovered runner than spreading the load thin.
      */
-    private fun chooseStrengthDays(
+    internal fun chooseStrengthDays(
         dates: List<LocalDate>,
         runDates: List<LocalDate>,
         longDate: LocalDate,

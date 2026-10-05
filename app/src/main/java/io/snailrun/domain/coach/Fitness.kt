@@ -39,6 +39,10 @@ data class FitnessEstimate(
     val fromDate: LocalDate,
     val confidence: Confidence,
     val paces: TrainingPaces,
+    /** The VMA behind this, typed, tested or worked back from the effort. */
+    val vmaKmh: Double? = null,
+    /** True when [vmaKmh] is the source rather than a reading worked back from an effort. */
+    val fromVma: Boolean = false,
 )
 
 /**

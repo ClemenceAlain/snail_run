@@ -21,6 +21,13 @@ enum class WorkoutType(val label: String) {
     Fartlek("Fartlek"),
     Repetitions("Repetitions"),
     Strength("Strength"),
+    // Added for the plan templates. Stored by name in `runs.workoutType`, so entries are
+    // only ever appended: renaming or removing one would orphan the runs that carry it.
+    VmaTest("VMA test"),
+    VmaIntervals("VMA"),
+    RacePace("Race pace"),
+    Threshold("Threshold"),
+    Race("Race"),
     ;
 
     /**
@@ -35,7 +42,10 @@ enum class WorkoutType(val label: String) {
      * out of the week to make room for a set of squats.
      */
     val isQuality: Boolean
-        get() = this in setOf(Steady, Tempo, CruiseIntervals, Intervals, Hills, Fartlek, Repetitions)
+        get() = this in setOf(
+            Steady, Tempo, CruiseIntervals, Intervals, Hills, Fartlek, Repetitions,
+            VmaTest, VmaIntervals, RacePace, Threshold, Race,
+        )
 
     /** Whether this is something you leave the house to record. Strength is not. */
     val isRun: Boolean get() = this != Rest && this != Strength
@@ -72,6 +82,16 @@ data class WorkoutStep(
     val countPerSet: Int? = null,
     /** Counted per leg or per side, so the set is really twice what it says. */
     val perSide: Boolean = false,
+    /**
+     * What the step is for, when its label cannot say. Null falls back to reading the
+     * label — see [WorkoutSegments] — which is how every session before the plan
+     * templates was written.
+     */
+    val kind: SegmentKind? = null,
+    /** The pace as the plan thinks of it, "105 % VMA", beside the pace in min/km. */
+    val intensity: String? = null,
+    /** Why this step is what it is: the pace, the length and the recovery, explained. */
+    val why: String? = null,
 )
 
 data class Workout(
@@ -94,6 +114,8 @@ data class Workout(
     val estimatedMs: Long? = null,
     /** A name for this particular session, where the type's label is too coarse. */
     val title: String? = null,
+    /** One line of advice for running it, the way a coach would say it at the track. */
+    val tip: String? = null,
 ) {
     val name: String get() = title ?: type.label
 }

@@ -22,6 +22,8 @@ data class WorkoutSegment(
     /** "rep 3 of 5". Null outside a repeated block. */
     val repIndex: Int? = null,
     val repCount: Int? = null,
+    /** "105 % VMA". Display only: not stored with the run. */
+    val intensity: String? = null,
 ) {
     val isRep: Boolean get() = repIndex != null && repCount != null
 }
@@ -55,6 +57,7 @@ object WorkoutSegments {
                     paceSecPerKm = step.paceSecPerKm,
                     repIndex = if (repeats > 1) rep + 1 else null,
                     repCount = if (repeats > 1) repeats else null,
+                    intensity = step.intensity,
                 )
 
                 val hasRecovery = step.recoveryMs != null || step.recoveryM != null
@@ -75,6 +78,7 @@ object WorkoutSegments {
     }
 
     private fun kindOf(step: WorkoutStep, index: Int, count: Int, repeats: Int): SegmentKind = when {
+        step.kind != null -> step.kind
         step.label.startsWith("Warm", ignoreCase = true) -> SegmentKind.WarmUp
         step.label.startsWith("Cool", ignoreCase = true) -> SegmentKind.CoolDown
         // An easy or long run is one step and is not work in the sense that matters here:

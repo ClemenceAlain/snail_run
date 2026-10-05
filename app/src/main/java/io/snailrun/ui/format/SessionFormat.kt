@@ -128,11 +128,17 @@ object SessionFormat {
             while (i < segments.size &&
                 segments[i].isRep &&
                 segments[i].label == first.label &&
-                segments[i].repCount == first.repCount
+                segments[i].repCount == first.repCount &&
+                // A second set of the same reps starts again at rep 1, and is its own row.
+                (reps == 0 || segments[i].repIndex != 1)
             ) {
                 reps++
                 i++
-                if (i < segments.size && segments[i].kind == SegmentKind.Recover) {
+                // Only the jog *inside* the block: the recovery between two sets is
+                // followed by a first rep, and is a row of its own.
+                if (i < segments.size && segments[i].kind == SegmentKind.Recover &&
+                    segments.getOrNull(i + 1)?.let { it.isRep && it.repIndex != 1 } == true
+                ) {
                     recovery = segments[i]
                     i++
                 }
