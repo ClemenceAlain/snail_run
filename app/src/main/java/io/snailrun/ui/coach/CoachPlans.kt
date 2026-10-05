@@ -3,70 +3,63 @@ package io.snailrun.ui.coach
 import io.snailrun.data.db.PersonalRecord
 import io.snailrun.data.db.RunEntity
 import io.snailrun.data.prefs.CoachSettings
-import io.snailrun.domain.coach.Baselines
-import io.snailrun.domain.coach.CoachRun
-import io.snailrun.domain.coach.Fitness
+import io.snailrun.domain.coach.CoachFitness
+import io.snailrun.domain.coach.PaceBasis
+import io.snailrun.domain.coach.PlanWeeks
 import io.snailrun.domain.coach.RaceGoal
 import io.snailrun.domain.coach.RecentEffort
 import io.snailrun.domain.coach.SharedSession
 import io.snailrun.domain.coach.Pairing
+import io.snailrun.domain.coach.Vmas
 import io.snailrun.domain.coach.WeekPlan
-import io.snailrun.domain.coach.WeekPlanner
+import io.snailrun.domain.coach.WorkoutType
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.TemporalAdjusters
 
-/** How far ahead the block runs. Four weeks is a training cycle and fits a scroll. */
-const val COACH_WEEKS = 4
-
 /**
- * Builds the block of weeks from stored rows.
+ * Builds a week of the runner's plan from stored rows.
  *
  * Shared because two screens want the same answer for different reasons: the Coach tab
- * shows the block, and the Record screen wants only today's line out of it. Computing it
+ * shows the week, and the Record screen wants only today's line out of it. Computing it
  * twice from the same rows would be cheap enough; computing it twice from two different
  * pieces of code is how the two screens end up disagreeing about what today's session is.
  */
 object CoachPlans {
 
-    fun block(
+    /** Where the paces come from today: the VMA if there is one, the efforts if not. */
+    fun basis(efforts: List<PersonalRecord>, saved: CoachSettings, today: LocalDate): PaceBasis =
+        CoachFitness.basis(
+            vma = saved.vma,
+            // The race they reported competes with the efforts the app has found for
+            // itself, on the same terms: the best one wins, and an old one falls out of
+            // the ten-week window on its own.
+            efforts = efforts.map { it.toRecentEffort() } + listOfNotNull(saved.baseline?.race),
+            today = today,
+        )
+
+    /** The plan's week starting [weekStart], or null with no plan or outside it. */
+    fun week(
         runs: List<RunEntity>,
         efforts: List<PersonalRecord>,
         saved: CoachSettings,
+        weekStart: LocalDate,
         today: LocalDate,
         firstDayOfWeek: DayOfWeek,
-        weeks: Int = COACH_WEEKS,
-    ): List<WeekPlan> {
-        val recorded = runs.mapNotNull { run ->
-            val date = runCatching { LocalDate.parse(run.localDate) }.getOrNull()
-                ?: return@mapNotNull null
-            CoachRun(date = date, meters = run.distanceMeters, movingMs = run.movingTimeMs)
-        }
-        // What the runner told the coach about the weeks before it was installed, on the
-        // days they have not since filled with a real run. They are runs like any other
-        // from here on, which is what keeps one set of rules rather than two.
-        val coachRuns = recorded + (
-            saved.baseline?.let { Baselines.syntheticRuns(it, recorded) }.orEmpty()
-            )
-        val weekStart = today.with(TemporalAdjusters.previousOrSame(firstDayOfWeek))
-
-        return WeekPlanner.block(
-            runs = coachRuns,
-            fitness = Fitness.estimate(
-                // The race they reported competes with the efforts the app has found
-                // for itself, on the same terms: the best one wins, and an old one falls
-                // out of the ten-week window on its own.
-                efforts = efforts.map { it.toRecentEffort() } + listOfNotNull(saved.baseline?.race),
-                today = today,
-            ),
-            goal = saved.toGoal(),
-            firstWeekStart = weekStart,
-            today = today,
-            weeks = weeks,
-            firstDayOfWeek = firstDayOfWeek,
-            orders = saved.dayOrders.mapKeys { LocalDate.ofEpochDay(it.key) },
+    ): WeekPlan? {
+        val plan = saved.plan ?: return null
+        val current = currentWeek(today, firstDayOfWeek)
+        val end = weekStart.plusDays(6)
+        val ranOn = runs.mapNotNull { it.date() }.filter { it >= weekStart && it <= end }.toSet()
+        return PlanWeeks.week(
+            plan = plan,
+            basis = basis(efforts, saved, today),
+            weekStart = weekStart,
+            testWeek = testWeek(runs, saved, current, today),
+            ranOn = ranOn,
+            order = saved.dayOrders[weekStart.toEpochDay()],
         )
     }
 
@@ -100,22 +93,41 @@ object CoachPlans {
         )
     }
 
-    fun runsSince(runs: List<RunEntity>, from: LocalDate, to: LocalDate): List<CoachRun> =
-        runs.mapNotNull { run ->
-            val date = runCatching { LocalDate.parse(run.localDate) }.getOrNull()
-                ?: return@mapNotNull null
-            CoachRun(date, run.distanceMeters, run.movingTimeMs).takeIf { date >= from && date <= to }
+    fun currentWeek(today: LocalDate, firstDayOfWeek: DayOfWeek): LocalDate =
+        today.with(TemporalAdjusters.previousOrSame(firstDayOfWeek))
+
+    /**
+     * The week the VMA test goes in, if one is owed.
+     *
+     * Owed while there is no VMA, or the one there is has gone twelve weeks without being
+     * measured again. A test run already recorded this week keeps the test in this week,
+     * even once it has set the VMA: that Tuesday was the test, and the week should still
+     * say so.
+     */
+    fun testWeek(runs: List<RunEntity>, saved: CoachSettings, current: LocalDate, today: LocalDate): LocalDate? {
+        val plan = saved.plan ?: return null
+        val end = current.plusDays(6)
+        val testedThisWeek = runs.any { run ->
+            run.workoutType == WorkoutType.VmaTest.name && run.date()?.let { it >= current && it <= end } == true
         }
+        if (testedThisWeek) return current
+        val vma = saved.vma
+        val owed = vma == null || vma.measuredOn.plusDays(Vmas.RETEST_DAYS).isBefore(today)
+        return if (owed) PlanWeeks.firstTestWeek(plan, current) else null
+    }
+
+    /** The race goal the old Settings screen held, offered back to the plan wizard. */
+    fun legacyGoal(saved: CoachSettings): RaceGoal? {
+        val distance = saved.targetDistanceMeters ?: return null
+        val day = saved.targetDateEpochDay ?: return null
+        return RaceGoal(distance, LocalDate.ofEpochDay(day))
+    }
+
+    private fun RunEntity.date(): LocalDate? = runCatching { LocalDate.parse(localDate) }.getOrNull()
 
     private fun PersonalRecord.toRecentEffort() = RecentEffort(
         distanceMeters = distanceMeters,
         durationMs = durationMs,
         date = Instant.ofEpochMilli(startedAtEpochMs).atZone(ZoneId.systemDefault()).toLocalDate(),
     )
-
-    private fun CoachSettings.toGoal(): RaceGoal? {
-        val distance = targetDistanceMeters ?: return null
-        val day = targetDateEpochDay ?: return null
-        return RaceGoal(distance, LocalDate.ofEpochDay(day))
-    }
 }

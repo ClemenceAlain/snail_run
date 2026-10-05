@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import io.snailrun.R
+import io.snailrun.domain.coach.CoachText
 import io.snailrun.domain.coach.Confidence
 import io.snailrun.domain.coach.FitnessEstimate
 import io.snailrun.ui.components.Badge
@@ -80,9 +81,14 @@ fun PacesCard(
                 Text("Training paces", style = MaterialTheme.typography.titleMedium)
                 Text(
                     text = fitness?.let {
-                        "From your ${distanceName(it.fromDistanceM)} on " +
-                            dayformat().format(it.fromDate)
-                    } ?: "Run a hard five kilometres and they appear here",
+                        if (it.fromVma) {
+                            "From your VMA of ${CoachText.kmh(it.vmaKmh ?: 0.0)}, " +
+                                dayformat().format(it.fromDate)
+                        } else {
+                            "From your ${distanceName(it.fromDistanceM)} on " +
+                                dayformat().format(it.fromDate)
+                        }
+                    } ?: "Run a hard five kilometres, or set your VMA in Coach",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -118,6 +124,9 @@ fun PacesCard(
                     "${RunFormat.pace(paces.easySecPerKm.start)}–" +
                         RunFormat.pace(paces.easySecPerKm.endInclusive),
                 )
+                fitness.vmaKmh?.let { vma ->
+                    PaceLine(if (fitness.fromVma) "VMA" else "VMA (estimated)", CoachText.kmh(vma))
+                }
                 PaceLine("Marathon", RunFormat.pace(paces.marathonSecPerKm))
                 PaceLine("Threshold", RunFormat.pace(paces.thresholdSecPerKm))
                 if (fitness.confidence == Confidence.Solid) {

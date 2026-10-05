@@ -37,12 +37,18 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import io.snailrun.domain.coach.CoachBaseline
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.runtime.saveable.rememberSaveable
+import io.snailrun.domain.coach.CoachText
 import io.snailrun.domain.coach.Pairing
 import io.snailrun.domain.coach.Partner
 import io.snailrun.domain.coach.SharedSession
 import io.snailrun.domain.coach.PlannedDay
-import io.snailrun.domain.coach.Races
+import io.snailrun.domain.coach.RaceGoal
+import io.snailrun.domain.coach.Vma
+import io.snailrun.domain.coach.VmaOrigin
+import io.snailrun.domain.coach.VmaSource
+import io.snailrun.domain.coach.Vmas
 import io.snailrun.domain.coach.WeekPlan
 import io.snailrun.domain.coach.Workout
 import io.snailrun.domain.coach.WorkoutStep
@@ -61,6 +67,7 @@ import io.snailrun.ui.format.SessionFormat
 import io.snailrun.ui.format.PartnerFormat
 import io.snailrun.ui.theme.SnailType
 import io.snailrun.ui.theme.Spacing
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
@@ -80,19 +87,15 @@ private fun rangeformat() = DateTimeFormatter.ofPattern("d MMM", UiLocale)
 private const val NBSP = ' '
 
 private val CoachHelp = listOf(
-    "Four weeks planned from the runs you have already done. Each week is built on the " +
-        "one before it, so the block climbs rather than repeating.",
-    "Hold a day to drag it somewhere else; the days it passes shift along by one. Only " +
-        "the rearrangement is remembered — the plan itself is worked out afresh every " +
-        "time, from your runs.",
-    "Volume rises at most a tenth on last week and never past 1.3 times your four-week " +
-        "average. The long run cannot grow more than a tenth either. Tap a day to see " +
-        "the session written out and why it is the length it is.",
+    "Your plan, a week at a time. Start one with your VMA, your race and how many " +
+        "sessions a week; the weeks ahead are worked out from those, and the weeks " +
+        "behind are kept as they were.",
+    "Every fast pace is a percentage of your VMA. Don't know it? The plan opens with " +
+        "the six-minute test and prices itself from the result.",
+    "Hold a day to drag it somewhere else; the days it passes shift along by one. " +
+        "Tap a day to see the session written out, and why each number is what it is.",
     "Two strength sessions a week sit beside the running rather than instead of it. " +
-        "They carry no distance, so they never cost you a kilometre, and they are kept " +
-        "off the day before anything hard.",
-    "The paces these sessions are written in live under Runs → Records, where the rest " +
-        "of what you are currently capable of is.",
+        "They carry no distance, and they are kept off the day before anything hard.",
     "Running a session with someone? Add them by VMA under Settings → Coach, then open the " +
         "day and pick them. Their paces appear under yours; switch on regrouping and the " +
         "session is timed so you keep meeting, and the faster one runs the gaps.",
@@ -107,20 +110,24 @@ fun CoachScreen(
     onShowWeek: (Int) -> Unit,
     onRunSession: (Workout) -> Unit,
     onStartStrength: (Workout) -> Unit,
-    onEditBaseline: (Boolean) -> Unit,
-    onSaveBaseline: (CoachBaseline?) -> Unit,
+    onCreating: (Boolean) -> Unit,
+    onStartPlan: (RaceGoal?, Long?, Int, Vma?) -> Unit,
+    onEditVma: (Boolean) -> Unit,
+    onSetVma: (Double, VmaSource) -> Unit,
+    onDismissMessage: () -> Unit,
     today: LocalDate,
+    firstDayOfWeek: DayOfWeek,
     modifier: Modifier = Modifier,
     onPair: (LocalDate, Pairing?) -> Unit = { _, _ -> },
     onShareText: (String) -> Unit = {},
 ) {
-    val plan = state.week
-    if (!state.loaded || plan == null) {
+    if (!state.loaded) {
         Box(modifier.fillMaxSize())
         return
     }
+    val plan = state.week
 
-    plan.days.firstOrNull { it.date == state.expanded }?.let { day ->
+    plan?.days?.firstOrNull { it.date == state.expanded }?.let { day ->
         val pairing = state.pairings[day.date]
         val herVdot = plan.fitness?.vdot ?: state.fitness?.vdot
         val shared = remember(day.workout, herVdot, pairing, state.partners) {
@@ -143,7 +150,7 @@ fun CoachScreen(
             onDismiss = { onExpand(day.date) },
             partner = shared?.partner,
             partnerLines = remember(shared) { shared?.let { PartnerFormat.lines(it) }.orEmpty() },
-            sharing = if (day.workout.type.isRun && !day.done) {
+            sharing = if (day.workout.type.isRun && !day.done && !plan.frozen) {
                 {
                     PairingControls(
                         partners = state.partners,
@@ -163,9 +170,9 @@ fun CoachScreen(
             // A rest day with strength on it has the strength as its only content, so it
             // is promoted rather than shown under an empty "Rest".
             strength = day.strength.takeIf { day.workout.type != WorkoutType.Rest },
-            // A rest day with strength on it has only one thing to offer, so the
-            // button offers that rather than nothing.
+            // A saved week is history: there is nothing in it left to start.
             action = when {
+                plan.frozen -> null
                 day.workout.type != WorkoutType.Rest -> "Run this" to {
                     onExpand(day.date)
                     onRunSession(herWorkout)
@@ -203,64 +210,65 @@ fun CoachScreen(
             }
         }
 
-        // Above the week, while it is the thing most worth doing: a plan built from
-        // nothing is the one the runner is least likely to follow.
-        if (state.askBaseline || state.editingBaseline) {
+        state.message?.let { message ->
+            item { MessageCard(message, onDismissMessage) }
+        }
+        if (state.shortTestRunId != null) {
+            item { ShortTestCard(onSetVma = onSetVma, onDismiss = onDismissMessage) }
+        }
+
+        if (state.plan == null || state.creating) {
             item {
-                BaselineCard(
-                    baseline = state.baseline,
-                    editing = state.editingBaseline,
+                PlanWizard(
+                    basis = state.basis,
+                    savedVma = state.vma,
+                    prefill = state.plan?.race ?: state.legacyGoal,
                     today = today,
-                    onEdit = onEditBaseline,
-                    onSave = onSaveBaseline,
+                    firstDayOfWeek = firstDayOfWeek,
+                    canCancel = state.plan != null,
+                    onCancel = { onCreating(false) },
+                    onStart = onStartPlan,
                 )
             }
+            // Nothing else until there is a plan: the wizard is the whole screen.
+            if (state.plan == null) return@LazyColumn
         }
 
         item {
-            WeekBar(
-                plan = plan,
-                index = state.weekIndex,
-                count = state.weeks.size,
-                today = today,
-                onShowWeek = onShowWeek,
+            PlanCard(
+                state = state,
+                onNewPlan = { onCreating(true) },
+                onEditVma = { onEditVma(true) },
             )
         }
 
-        if (state.goal != null) {
-            item { RaceCard(plan, state) }
+        if (state.editingVma) {
+            item { VmaCard(current = state.vma, onSave = onSetVma, onCancel = { onEditVma(false) }) }
         }
 
-        item(key = "days-${plan.weekStart}") {
-            DraggableWeek(
-                plan = plan,
-                today = today,
-                partnerOn = { date ->
-                    state.pairings[date]?.let { p -> state.partners.firstOrNull { it.id == p.partnerId } }
-                },
-                onExpand = onExpand,
-                onMove = { from, to -> onMove(plan.weekStart, from, to) },
-            )
+        item {
+            WeekBar(state = state, today = today, onShowWeek = onShowWeek)
         }
 
-        if (plan.order != null) {
-            item {
-                TextButton(onClick = { onResetWeek(plan.weekStart) }) { Text("Put the week back") }
-            }
-        }
-
-        // Below everything otherwise: a footnote about where the numbers above came
-        // from — and the way back in for a runner who has history but still wants to
-        // tell the coach about a race it never saw.
-        if (!state.askBaseline && !state.editingBaseline) {
-            item {
-                BaselineCard(
-                    baseline = state.baseline,
-                    editing = false,
+        if (plan == null) {
+            item { NoWeekCard(state) }
+        } else {
+            item(key = "days-${plan.weekStart}") {
+                DraggableWeek(
+                    plan = plan,
                     today = today,
-                    onEdit = onEditBaseline,
-                    onSave = onSaveBaseline,
+                    partnerOn = { date ->
+                        state.pairings[date]?.let { p -> state.partners.firstOrNull { it.id == p.partnerId } }
+                    },
+                    onExpand = onExpand,
+                    onMove = { from, to -> onMove(plan.weekStart, from, to) },
                 )
+            }
+
+            if (plan.order != null && !plan.frozen) {
+                item {
+                    TextButton(onClick = { onResetWeek(plan.weekStart) }) { Text("Put the week back") }
+                }
             }
         }
     }
@@ -325,7 +333,9 @@ private fun DraggableWeek(
                     .onGloballyPositioned { heights[index] = it.size.height }
                     .zIndex(if (isDragged) 1f else 0f)
                     .graphicsLayer { translationY = shift }
-                    .pointerInput(plan.weekStart, index) {
+                    .pointerInput(plan.weekStart, index, plan.frozen) {
+                        // A saved week is history, and history is not rearranged.
+                        if (plan.frozen) return@pointerInput
                         detectDragGesturesAfterLongPress(
                             onDragStart = {
                                 dragFrom = index
@@ -399,19 +409,14 @@ private fun targetIndex(
 /**
  * The week on screen, with an arrow either side of it.
  *
- * One week at a time rather than four down a scroll. Four weeks of seven cards is
- * twenty-eight things to scroll past to reach the one you were looking for, and the week
- * you actually care about is nearly always the one you are in.
+ * One week at a time. Back goes through every week the coach has kept; forward goes as
+ * far as the plan does — race day, or half a year for a plan with no race.
  */
 @Composable
-private fun WeekBar(
-    plan: WeekPlan,
-    index: Int,
-    count: Int,
-    today: LocalDate,
-    onShowWeek: (Int) -> Unit,
-) {
-    val current = !today.isBefore(plan.weekStart) && today.isBefore(plan.weekStart.plusDays(7))
+private fun WeekBar(state: CoachUiState, today: LocalDate, onShowWeek: (Int) -> Unit) {
+    val start = state.weekStart ?: return
+    val plan = state.week
+    val current = state.weeksAway == 0L
     SnailCard(
         modifier = Modifier.fillMaxWidth(),
         containerColor = if (current) {
@@ -421,37 +426,31 @@ private fun WeekBar(
         },
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Arrow(
-                back = true,
-                enabled = index > 0,
-                onClick = { onShowWeek(-1) },
-            )
+            Arrow(back = true, enabled = state.canGoBack, onClick = { onShowWeek(-1) })
             Column(
                 modifier = Modifier.weight(1f),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                Text(text = weekLabel(state.weeksAway), style = MaterialTheme.typography.titleMedium)
                 Text(
-                    text = if (current) "This week" else "In $index weeks",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text(
-                    text = weekRange(plan.weekStart),
+                    text = weekRange(start),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Arrow(
-                back = false,
-                enabled = index < count - 1,
-                onClick = { onShowWeek(1) },
+            Arrow(back = false, enabled = state.canGoForward, onClick = { onShowWeek(1) })
+        }
+
+        plan?.note?.takeIf { it.isNotEmpty() }?.let { note ->
+            Spacer(Modifier.height(Spacing.s))
+            Text(
+                text = if (plan.frozen) "$note Kept as it was planned." else note,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
-        // No note and no weekly total. The week is seven cards immediately below, each
-        // with its own distance on it, and a paragraph restating their sum was the one
-        // thing on this screen nobody read.
-
-        plan.conflicts.forEach { warning ->
+        plan?.conflicts?.forEach { warning ->
             Spacer(Modifier.height(Spacing.s))
             Text(
                 text = warning,
@@ -479,38 +478,145 @@ private fun Arrow(back: Boolean, enabled: Boolean, onClick: () -> Unit) {
     }
 }
 
+/**
+ * The plan in two lines, its VMA, and the explanation of the whole thing.
+ *
+ * The explanation is folded away: it is read once, carefully, and then it is in the way.
+ */
 @Composable
-private fun RaceCard(plan: WeekPlan, state: CoachUiState) {
-    val goal = state.goal ?: return
+private fun PlanCard(state: CoachUiState, onNewPlan: () -> Unit, onEditVma: () -> Unit) {
+    val plan = state.plan ?: return
+    var aboutOpen by rememberSaveable { mutableStateOf(false) }
     SnailCard(
         modifier = Modifier.fillMaxWidth(),
         containerColor = MaterialTheme.colorScheme.secondaryContainer,
     ) {
         val content = MaterialTheme.colorScheme.onSecondaryContainer
-        val weeks = Races.weeksTo(goal, plan.weekStart)
+        val race = plan.race
         Text(
-            text = "${distanceName(goal.distanceMeters)} on ${dayformat().format(goal.date)}",
+            text = race?.let { "${distanceName(it.distanceMeters)} on ${dayformat().format(it.date)}" }
+                ?: "No race · a four-week cycle",
             style = MaterialTheme.typography.titleMedium,
             color = content,
         )
         Text(
             text = buildString {
-                append(if (weeks <= 0) "Race week" else "$weeks weeks away")
-                plan.phase?.let { append(" · ${it.label}") }
+                append("${plan.sessionsPerWeek} sessions a week")
+                plan.targetTimeMs?.let { append(" · target ${CoachText.clock(it)}") }
+                    ?: state.week?.predictedTimeMs?.let { append(" · on today's fitness ${RunFormat.duration(it)}") }
             },
             style = MaterialTheme.typography.bodyMedium,
             color = content,
         )
-        plan.predictedTimeMs?.let { predicted ->
-            Spacer(Modifier.height(Spacing.s))
-            Text(
-                // Deliberately not called a goal time. It is what today's fitness is
-                // worth on a flat course on a good day, and exactly one of those three
-                // is usually true.
-                text = "On today's fitness, ${RunFormat.duration(predicted)}.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = content,
-            )
+        Spacer(Modifier.height(Spacing.s))
+        Text(
+            text = vmaLine(state),
+            style = MaterialTheme.typography.bodyMedium,
+            color = content,
+        )
+
+        AnimatedVisibility(visible = aboutOpen) {
+            Column {
+                state.about.forEach { section ->
+                    Spacer(Modifier.height(Spacing.m))
+                    Text(section.title, style = MaterialTheme.typography.titleSmall, color = content)
+                    Text(section.body, style = MaterialTheme.typography.bodyMedium, color = content)
+                }
+            }
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+            TextButton(onClick = { aboutOpen = !aboutOpen }) {
+                Text(if (aboutOpen) "Hide" else "About this plan")
+            }
+            TextButton(onClick = onEditVma) { Text("Change VMA") }
+            TextButton(onClick = onNewPlan) { Text("New plan") }
+        }
+    }
+}
+
+private fun vmaLine(state: CoachUiState): String {
+    val basis = state.basis
+    val vma = basis?.vmaKmh
+    return when (basis?.origin) {
+        VmaOrigin.Test -> "VMA ${CoachText.kmh(vma!!)}, measured ${dayformat().format(basis.measuredOn)}"
+        VmaOrigin.Typed -> "VMA ${CoachText.kmh(vma!!)}, entered ${dayformat().format(basis.measuredOn)}"
+        VmaOrigin.Estimated -> "VMA about ${CoachText.kmh(vma!!)}, estimated from your running. " +
+            "The six-minute test will measure it."
+        else -> "No VMA yet. The six-minute test is in your plan; fast sessions are by feel until then."
+    }
+}
+
+/** A week the plan does not reach: before it starts, or after the race. */
+@Composable
+private fun NoWeekCard(state: CoachUiState) {
+    val plan = state.plan ?: return
+    val start = state.weekStart ?: return
+    SnailCard(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = when {
+                start.isBefore(plan.startWeek) ->
+                    "Your plan starts on ${dayformat().format(plan.startWeek)}. Run easy until then."
+                else -> "The plan is over. Start a new one when you are ready."
+            },
+            style = MaterialTheme.typography.bodyMedium,
+        )
+    }
+}
+
+@Composable
+private fun MessageCard(message: String, onDismiss: () -> Unit) {
+    SnailCard(
+        modifier = Modifier.fillMaxWidth(),
+        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+    ) {
+        Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onTertiaryContainer)
+        TextButton(onClick = onDismiss) { Text("OK") }
+    }
+}
+
+/** The test stopped before six minutes. Asked rather than guessed. */
+@Composable
+private fun ShortTestCard(onSetVma: (Double, VmaSource) -> Unit, onDismiss: () -> Unit) {
+    var meters by rememberSaveable { mutableStateOf("") }
+    SnailCard(modifier = Modifier.fillMaxWidth()) {
+        Text("Your VMA test stopped early", style = MaterialTheme.typography.titleMedium)
+        Text(
+            text = "The app reads the test off a full six minutes, and this one was shorter. " +
+                "If you know how far you got in six minutes, enter it here.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(Spacing.s))
+        NumberField(meters, { meters = it }, "Metres in six minutes", decimal = false)
+        Row {
+            val value = PlanInputs.testMeters(meters)
+            TextButton(
+                onClick = { value?.let { onSetVma(Vmas.fromTestDistance(it), VmaSource.Test) } },
+                enabled = value != null,
+            ) { Text("Save") }
+            TextButton(onClick = onDismiss) { Text("Not now") }
+        }
+    }
+}
+
+@Composable
+private fun VmaCard(current: Vma?, onSave: (Double, VmaSource) -> Unit, onCancel: () -> Unit) {
+    var text by rememberSaveable { mutableStateOf(current?.kmh?.toString().orEmpty()) }
+    SnailCard(modifier = Modifier.fillMaxWidth()) {
+        Text("Your VMA", style = MaterialTheme.typography.titleMedium)
+        Text(
+            text = "Every fast pace in the plan moves with it, this week and every week ahead. " +
+                "Weeks already behind you keep the paces they had.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(Spacing.s))
+        NumberField(text, { text = it }, "VMA, km/h", decimal = true)
+        Row {
+            val value = PlanInputs.vma(text)
+            TextButton(onClick = { value?.let { onSave(it, VmaSource.Typed) } }, enabled = value != null) { Text("Save") }
+            TextButton(onClick = onCancel) { Text("Cancel") }
         }
     }
 }
@@ -622,6 +728,14 @@ private fun summaryOf(day: PlannedDay): String {
 // one to the metre, so "6.3 km" is the whole of what it has to say; "6.31 km" claims a
 // precision the plan does not have.
 private fun km(meters: Double): String = SessionFormat.kmWithUnit(meters)
+
+private fun weekLabel(weeksAway: Long): String = when {
+    weeksAway == 0L -> "This week"
+    weeksAway == 1L -> "Next week"
+    weeksAway == -1L -> "Last week"
+    weeksAway > 1L -> "In $weeksAway weeks"
+    else -> "${-weeksAway} weeks ago"
+}
 
 private fun weekRange(start: LocalDate): String =
     "${rangeformat().format(start)} – ${rangeformat().format(start.plusDays(6))}"

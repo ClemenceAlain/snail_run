@@ -60,7 +60,6 @@ data class SettingsActions(
     val onChooseBasemap: () -> Unit,
     val onRemoveBasemap: () -> Unit,
     /** Distance and date together, or both null to clear the target. */
-    val onCoachTarget: (Int?, Long?) -> Unit,
     val onCoachNudge: (Boolean) -> Unit,
     val onSavePartner: (io.snailrun.domain.coach.Partner) -> Unit = {},
     val onRemovePartner: (Int) -> Unit = {},
@@ -79,7 +78,6 @@ fun SettingsScreen(
     basemapStatus: String = "No map file yet.",
     backupStatus: String? = null,
 ) {
-    var showRaceDatePicker by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -208,19 +206,13 @@ fun SettingsScreen(
         SectionTitle(
             "Coach",
             help = listOf(
-                "The Coach tab plans four weeks from the runs you have already done. It " +
-                    "needs nothing set here — without a race it builds steadily, which is " +
-                    "what most of a year looks like.",
-                "On a fresh install it has no runs to read, so the tab asks four questions " +
-                    "about the month before it. The answers stand in for that month and " +
-                    "age out of it day by day.",
+                "Plans are started on the Coach tab: your VMA, your race and how many " +
+                    "sessions a week. Nothing here changes the plan.",
                 "Load a session on the record screen and the app counts you through it, " +
                     "out loud and with a buzz at every change of step.",
                 "The off-pace warning reads smoothed GPS pace, which wanders under trees " +
                     "and round corners. It waits twenty seconds and speaks at most once a " +
                     "minute, and it is off until you ask for it.",
-                "With a race set, the plan counts back from the date: it builds until four " +
-                    "weeks out, sharpens inside that, and tapers the last fortnight.",
             ),
         )
 
@@ -232,62 +224,10 @@ fun SettingsScreen(
             )
 
             Spacer(Modifier.height(Spacing.l))
-            Text("Training for", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(Spacing.s))
-            ChipRow {
-                FilterChip(
-                    selected = settings.coach.targetDistanceMeters == null,
-                    onClick = { actions.onCoachTarget(null, null) },
-                    label = { Text("Nothing") },
-                )
-                Races.Distances.forEach { meters ->
-                    FilterChip(
-                        selected = settings.coach.targetDistanceMeters == meters,
-                        onClick = {
-                            // A distance with no date cannot be periodised, so picking one
-                            // seeds a date twelve weeks out — the length of a build — which
-                            // the runner then corrects to their actual race.
-                            actions.onCoachTarget(
-                                meters,
-                                settings.coach.targetDateEpochDay
-                                    ?: LocalDate.now().plusWeeks(12).toEpochDay(),
-                            )
-                        },
-                        label = { Text(raceLabel(meters)) },
-                    )
-                }
-            }
-
-            AnimatedVisibility(visible = settings.coach.targetDistanceMeters != null) {
-                Column {
-                    Spacer(Modifier.height(Spacing.m))
-                    val date = settings.coach.targetDateEpochDay?.let(LocalDate::ofEpochDay)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = date?.let { dateFormat().format(it) } ?: "No date",
-                            style = MaterialTheme.typography.bodyLarge,
-                        )
-                        TextButton(onClick = { showRaceDatePicker = true }) { Text("Change") }
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(Spacing.l))
             PartnersSection(
                 partners = settings.coach.partners,
                 onSave = actions.onSavePartner,
                 onRemove = actions.onRemovePartner,
-            )
-        }
-
-        if (showRaceDatePicker) {
-            RaceDatePicker(
-                initial = settings.coach.targetDateEpochDay,
-                onDismiss = { showRaceDatePicker = false },
-                onPick = { epochDay ->
-                    showRaceDatePicker = false
-                    actions.onCoachTarget(settings.coach.targetDistanceMeters, epochDay)
-                },
             )
         }
 
@@ -394,51 +334,6 @@ private fun ChipRow(content: @Composable FlowRowScope.() -> Unit) {
         verticalArrangement = Arrangement.spacedBy(Spacing.s),
         content = content,
     )
-}
-
-/**
- * The platform date picker, opened only when a target exists to attach a date to.
- *
- * Dates arrive from it as UTC milliseconds whatever the phone's zone, so they are read
- * back in UTC. Reading them in the local zone shifts the race a day either way for
- * anyone far enough east or west, which is exactly the sort of bug nobody notices until
- * the taper starts a week late.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun RaceDatePicker(initial: Long?, onDismiss: () -> Unit, onPick: (Long) -> Unit) {
-    val state = rememberDatePickerState(
-        initialSelectedDateMillis = (initial ?: LocalDate.now().plusWeeks(12).toEpochDay()) *
-            86_400_000L,
-    )
-    DatePickerDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    state.selectedDateMillis?.let { millis ->
-                        onPick(
-                            Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
-                                .toEpochDay()
-                        )
-                    }
-                },
-            ) { Text("Set") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    ) {
-        DatePicker(state = state)
-    }
-}
-
-// Built per call: a formatter cached at class-init keeps the locale the app
-// started with, which is wrong after the user changes the system language.
-private fun dateFormat() = DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", UiLocale)
-
-private fun raceLabel(meters: Int) = when (meters) {
-    21_097 -> "Half"
-    42_195 -> "Marathon"
-    else -> "${meters / 1000} km"
 }
 
 private fun demoDurationLabel(speedFactor: Int): String {

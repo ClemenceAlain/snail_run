@@ -76,6 +76,7 @@ import io.snailrun.ui.settings.SettingsScreen
 import io.snailrun.ui.theme.SnailRunTheme
 import java.time.Instant
 import java.time.LocalDate
+import java.time.temporal.WeekFields
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -308,9 +309,13 @@ class MainActivity : ComponentActivity() {
                 onRunSession()
             },
             onStartStrength = onStartStrength,
-            onEditBaseline = viewModel::editBaseline,
-            onSaveBaseline = viewModel::saveBaseline,
+            onCreating = viewModel::startCreating,
+            onStartPlan = viewModel::startPlan,
+            onEditVma = viewModel::editVma,
+            onSetVma = viewModel::setVma,
+            onDismissMessage = viewModel::dismissMessage,
             today = LocalDate.now(),
+            firstDayOfWeek = WeekFields.of(Locale.getDefault()).firstDayOfWeek,
             onPair = viewModel::pair,
             // Plain text through whatever the phone has — a message app, mostly. The
             // partner has no app to send anything richer to.
@@ -546,9 +551,6 @@ class MainActivity : ComponentActivity() {
                 // de-Googled builds hide anything they cannot name.
                 onChooseBasemap = { basemapPicker.launch(arrayOf("*/*")) },
                 onRemoveBasemap = { scope.launch { container.basemapStore.remove() } },
-                onCoachTarget = { meters, day ->
-                    scope.launch { container.settings.setCoachTarget(meters, day) }
-                },
                 onCoachNudge = { scope.launch { container.settings.setCoachNudgeOffPace(it) } },
                 onSavePartner = { scope.launch { container.settings.savePartner(it) } },
                 onRemovePartner = { scope.launch { container.settings.removePartner(it) } },

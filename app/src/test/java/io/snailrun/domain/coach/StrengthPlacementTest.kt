@@ -1,6 +1,5 @@
 package io.snailrun.domain.coach
 
-import java.time.DayOfWeek
 import java.time.LocalDate
 import kotlin.math.abs
 import org.junit.Assert.assertEquals
@@ -12,38 +11,20 @@ import org.junit.Test
  * Where the reinforcement work lands, and what it must never cost.
  *
  * The rule the whole feature stands on is the first test: strength carries no distance.
- * The moment it does, every cap in [WeekPlanner] starts counting squats as kilometres and
- * a runner gets a shorter long run because they did a plank.
+ * The moment it does, the week's totals start counting squats as kilometres.
  */
 class StrengthPlacementTest {
 
-    private val today = LocalDate.of(2026, 9, 18)
-    private val weekStart = LocalDate.of(2026, 9, 21) // a Monday
+    private val start = LocalDate.of(2026, 10, 5) // a Monday
+    private val basis = CoachFitness.basis(Vma(14.0, start, VmaSource.Typed), emptyList(), start)
 
-    private val ThreeDays = listOf(DayOfWeek.TUESDAY, DayOfWeek.THURSDAY, DayOfWeek.SUNDAY)
-    private val SixDays = DayOfWeek.entries.filter { it != DayOfWeek.FRIDAY }
+    private val ThreeDays = 3
+    private val FourDays = 4
 
-    private fun history(days: List<DayOfWeek>, weeks: Int = 6, perWeekKm: Double = 45.0) =
-        (0 until weeks).flatMap { back ->
-            days.mapIndexed { i, day ->
-                val date = today.minusWeeks(back.toLong()).with(day)
-                val share = if (i == days.lastIndex) 0.3 else 0.7 / (days.size - 1)
-                CoachRun(date, perWeekKm * 1000 * share, 0)
-            }
-        }.filter { it.date <= today }
-
-    private val solid = Fitness.estimate(
-        listOf(RecentEffort(5_000, 20 * 60_000L, today.minusDays(11))),
-        today,
-    )!!
-
-    private fun plan(days: List<DayOfWeek> = ThreeDays, goal: RaceGoal? = null) =
-        WeekPlanner.plan(
-            load = TrainingLoad.summarise(history(days), today, DayOfWeek.MONDAY),
-            fitness = solid,
-            goal = goal,
-            weekStart = weekStart,
-        )
+    private fun plan(sessions: Int = ThreeDays, week: Int = 0): WeekPlan {
+        val plan = TrainingPlan(start, RaceGoal(10_000, start.plusDays(55)), null, sessions, start)
+        return PlanWeeks.week(plan, basis, start.plusWeeks(week.toLong()))!!
+    }
 
     private val WeekPlan.strengthDays get() = days.filter { it.strength != null }
 
@@ -55,12 +36,8 @@ class StrengthPlacementTest {
         assertEquals(0.0, session.totalMeters, 0.0)
         assertEquals(0.0, session.qualityMeters, 0.0)
 
-        val plan = plan()
-        assertEquals(
-            plan.days.sumOf { it.workout.totalMeters },
-            plan.plannedMeters,
-            0.001,
-        )
+        // Strength is never a session's main workout, so it never reaches a total.
+        assertTrue(plan().days.none { it.workout.type == WorkoutType.Strength })
     }
 
     @Test
@@ -78,7 +55,7 @@ class StrengthPlacementTest {
 
     @Test
     fun `never the day before something hard`() {
-        listOf(ThreeDays, SixDays).forEach { days ->
+        listOf(ThreeDays, FourDays).forEach { days ->
             val plan = plan(days)
             val hard = plan.days
                 .filter { it.workout.type.isQuality || it.workout.type == WorkoutType.Long }
@@ -94,7 +71,7 @@ class StrengthPlacementTest {
 
     @Test
     fun `never two days running`() {
-        listOf(ThreeDays, SixDays).forEach { days ->
+        listOf(ThreeDays, FourDays).forEach { days ->
             val dates = plan(days).strengthDays.map { it.date }
             dates.zipWithNext().forEach { (a, b) ->
                 assertTrue("$a and $b are consecutive", abs(a.toEpochDay() - b.toEpochDay()) > 1)
@@ -102,10 +79,10 @@ class StrengthPlacementTest {
         }
     }
 
-    /** Six running days leaves one rest day, so the fallback has to find the second one. */
+    /** Four running days leaves three rest days, two of them next to something hard. */
     @Test
     fun `a crowded week still gets its strength work`() {
-        assertTrue(plan(SixDays).strengthDays.isNotEmpty())
+        assertTrue(plan(FourDays).strengthDays.isNotEmpty())
     }
 
     @Test
@@ -117,9 +94,8 @@ class StrengthPlacementTest {
 
     /** Race week is for arriving fresh. Two sessions of squats is not that. */
     @Test
-    fun `a taper week gets one`() {
-        val goal = RaceGoal(10_000, weekStart.plusDays(6))
-        assertEquals(1, plan(ThreeDays, goal).strengthDays.size)
+    fun `a race week gets one`() {
+        assertEquals(1, plan(ThreeDays, week = 7).strengthDays.size)
     }
 
     // ---- the session itself -------------------------------------------------------------

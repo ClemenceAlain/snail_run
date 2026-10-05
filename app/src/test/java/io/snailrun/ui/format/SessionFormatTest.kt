@@ -106,4 +106,14 @@ class SessionFormatTest {
         assertTrue(lines.none { it.contains("×") })
         assertEquals("3 rounds, one exercise after the other", SessionFormat.strengthRounds(session))
     }
+
+    @Test
+    fun `a plan step shows its percentage of VMA beside its pace`() {
+        val segment = io.snailrun.domain.coach.WorkoutSegment(
+            index = 0, label = "Fast", kind = SegmentKind.Work, targetM = 200.0,
+            paceSecPerKm = 245.0..245.0, repIndex = 1, repCount = 2, intensity = "105 % VMA",
+        )
+        val block = SessionFormat.blocks(listOf(segment, segment.copy(index = 1, repIndex = 2))).single()
+        assertEquals("200${NBSP}m · 4:05$NBSP/km · 105 % VMA", block.detail)
+    }
 }

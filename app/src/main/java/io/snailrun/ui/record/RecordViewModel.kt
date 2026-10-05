@@ -7,6 +7,7 @@ import io.snailrun.AppContainer
 import io.snailrun.data.db.RunEntity
 import io.snailrun.data.location.LocationSource
 import io.snailrun.data.prefs.SettingsRepository
+import io.snailrun.data.repo.CoachWeekStore
 import io.snailrun.data.repo.RunRepository
 import io.snailrun.tracking.RecordingState
 import io.snailrun.domain.coach.Fitness
@@ -46,6 +47,7 @@ class RecordViewModel(
     private val settings: SettingsRepository,
     private val locationSource: LocationSource,
     private val armed: ArmedSession,
+    private val weeks: CoachWeekStore,
     private val today: LocalDate = LocalDate.now(),
 ) : ViewModel() {
 
@@ -70,20 +72,22 @@ class RecordViewModel(
                 repository.observeRecentEfforts(since),
                 settings.settings,
             ) { runs, efforts, saved ->
-                CoachPlans.block(
+                val firstDay = WeekFields.of(Locale.getDefault()).firstDayOfWeek
+                CoachPlans.week(
                     runs = runs,
                     efforts = efforts,
                     saved = saved.coach,
+                    weekStart = CoachPlans.currentWeek(today, firstDay),
                     today = today,
-                    firstDayOfWeek = WeekFields.of(Locale.getDefault()).firstDayOfWeek,
-                    weeks = 1,
-                ).firstOrNull()?.let { week ->
-                    week.days.firstOrNull { it.date == today }?.let { day ->
-                        day to CoachPlans.sharedOn(week, today, saved.coach)
-                    }
-                }
+                    firstDayOfWeek = firstDay,
+                )?.let { week -> week to CoachPlans.sharedOn(week, today, saved.coach) }
             }.collect { found ->
-                val (day, shared) = found ?: (null to null)
+                val week = found?.first
+                val shared = found?.second
+                // Saved from here too: a runner who only ever opens the record screen
+                // still gets their past weeks kept.
+                week?.let { weeks.saveIfChanged(it) }
+                val day = week?.days?.firstOrNull { it.date == today }
                 _ui.value = _ui.value.copy(
                     // Shared and timed to regroup, the runner's own session can differ
                     // from the plan's, and the one counted through is the one agreed.
@@ -155,6 +159,7 @@ class RecordViewModel(
             settings = container.settings,
             locationSource = container.locationSource,
             armed = ArmedSession { container.armedWorkout = it },
+            weeks = container.coachWeeks,
         ) as T
     }
 }

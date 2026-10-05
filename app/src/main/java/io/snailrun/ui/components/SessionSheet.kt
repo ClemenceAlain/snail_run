@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.snailrun.R
 import io.snailrun.domain.coach.Workout
@@ -97,6 +98,41 @@ fun SessionSheet(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+
+            workout.tip?.let { tip ->
+                Spacer(Modifier.height(Spacing.m))
+                SnailCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                ) {
+                    Text(
+                        text = tip,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    )
+                }
+            }
+
+            // Every number on the sheet, with its reason. Below the session rather than
+            // inside it, so the session still reads in one glance before the run.
+            val reasons = workout.steps.filter { it.why != null }
+            if (reasons.isNotEmpty()) {
+                Spacer(Modifier.height(Spacing.l))
+                Text("Why these numbers", style = MaterialTheme.typography.titleSmall)
+                reasons.forEach { step ->
+                    Spacer(Modifier.height(Spacing.s))
+                    Text(
+                        text = step.label,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = step.why.orEmpty(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
 
             strength?.let { extra ->

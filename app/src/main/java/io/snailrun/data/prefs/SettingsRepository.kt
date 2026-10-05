@@ -38,12 +38,12 @@ data class Settings(
 )
 
 /**
- * A race to train towards, if there is one.
+ * What the coach keeps about the runner.
  *
- * Both fields null is the normal state and a supported one: without a target the coach
- * plans a balanced week off the runner's own history, which is what most people want
- * most of the year. The date is stored as an epoch day rather than a string because the
- * only thing ever done with it is arithmetic against another date.
+ * [targetDistanceMeters] and [targetDateEpochDay] are the race goal from before plans
+ * existed. Nothing sets them any more; they are read once, to start the plan wizard
+ * from the race the runner had already entered, and carried through backups so an old
+ * file still restores the same.
  */
 data class CoachSettings(
     val targetDistanceMeters: Int? = null,
@@ -51,11 +51,9 @@ data class CoachSettings(
     /**
      * Weeks the runner has rearranged by hand, keyed on the week's first day.
      *
-     * The plan itself is never stored — it is recomputed from the history every time it
-     * is shown. What is stored is the one thing that cannot be recomputed: the fact that
-     * somebody dragged Tuesday's tempo to Thursday because they are at work on Tuesday.
-     * A permutation survives a replan, where a stored plan would have to be reconciled
-     * with one.
+     * The weeks ahead are planned afresh every time they are shown. What is stored is
+     * the one thing that cannot be: the fact that somebody dragged Tuesday's session to
+     * Wednesday because they are at work on Tuesday. A permutation survives a replan.
      */
     val dayOrders: Map<Long, List<Int>> = emptyMap(),
     /**
@@ -333,20 +331,6 @@ class SettingsRepository(private val context: Context) {
     suspend fun setDemoSpeedFactor(factor: Int) = edit { it[DEMO_SPEED_FACTOR] = factor }
 
     /**
-     * Set together, cleared together. A distance with no date cannot be periodised and a
-     * date with no distance cannot be predicted, so neither half is a state worth having.
-     */
-    suspend fun setCoachTarget(distanceMeters: Int?, dateEpochDay: Long?) = edit {
-        if (distanceMeters == null || dateEpochDay == null) {
-            it.remove(COACH_TARGET_DISTANCE)
-            it.remove(COACH_TARGET_DATE)
-        } else {
-            it[COACH_TARGET_DISTANCE] = distanceMeters
-            it[COACH_TARGET_DATE] = dateEpochDay
-        }
-    }
-
-    /**
      * Remembers how a week has been rearranged, and forgets weeks now in the past.
      *
      * Pruning here rather than on a schedule: this is the only place the set is written,
@@ -403,13 +387,11 @@ class SettingsRepository(private val context: Context) {
         if (encoded.isEmpty()) prefs.remove(COACH_PAIRINGS) else prefs[COACH_PAIRINGS] = encoded
     }
 
-    /**
-     * Starts a plan, or drops it. A new plan also forgets the old one's rearranged
-     * weeks: they were moves inside a plan that no longer exists.
-     */
-    suspend fun setCoachPlan(plan: TrainingPlan?) = edit {
+    /** A new plan and the VMA it starts from, written together. */
+    suspend fun startCoachPlan(plan: TrainingPlan, vma: Vma?) = edit {
         it.remove(COACH_DAY_ORDERS)
-        if (plan == null) it.remove(COACH_PLAN) else it[COACH_PLAN] = TrainingPlans.encode(plan)
+        it[COACH_PLAN] = TrainingPlans.encode(plan)
+        if (vma == null) it.remove(COACH_VMA) else it[COACH_VMA] = CoachVmas.encode(vma)
     }
 
     suspend fun setCoachVma(vma: Vma?) = edit {
@@ -417,22 +399,6 @@ class SettingsRepository(private val context: Context) {
     }
 
     suspend fun setCoachNudgeOffPace(value: Boolean) = edit { it[COACH_NUDGE_OFF_PACE] = value }
-
-    /**
-     * Writes the starting point, or clears it.
-     *
-     * One call for all of it: the answers describe one set of four weeks, and half of
-     * them written against a [CoachBaseline.recordedOnEpochDay] from a different day
-     * would describe four weeks that never happened.
-     */
-    suspend fun setCoachBaseline(baseline: CoachBaseline?) = edit {
-        it[COACH_BASELINE_ASKED] = true
-        if (baseline == null) {
-            it.remove(COACH_BASELINE)
-        } else {
-            it[COACH_BASELINE] = CoachBaselines.encode(baseline)
-        }
-    }
 
     /**
      * Puts the coach back as a restored backup found it.

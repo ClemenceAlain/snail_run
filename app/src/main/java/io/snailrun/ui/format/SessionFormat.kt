@@ -163,6 +163,12 @@ object SessionFormat {
             if (isNotEmpty()) append(" · ")
             append(pace(it))
         }
+        // "105 % VMA" beside the pace it produced, so the runner can check one against
+        // the other — and still has something to aim at when there is no pace at all.
+        segment.intensity?.takeIf { it != "easy" }?.let {
+            if (isNotEmpty()) append(" · ")
+            append(it)
+        }
     }
 
     /** Roughly how long a session takes, for the line under its name. */

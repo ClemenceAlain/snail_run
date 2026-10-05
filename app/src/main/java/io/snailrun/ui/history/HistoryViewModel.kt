@@ -8,6 +8,7 @@ import io.snailrun.data.db.PersonalRecord
 import io.snailrun.data.db.RunEntity
 import io.snailrun.data.prefs.SettingsRepository
 import io.snailrun.data.repo.RunRepository
+import io.snailrun.domain.coach.CoachFitness
 import io.snailrun.domain.coach.Fitness
 import io.snailrun.domain.coach.FitnessEstimate
 import io.snailrun.domain.coach.RecentEffort
@@ -123,11 +124,14 @@ class HistoryViewModel(
                 repository.observeRecentEfforts(since),
                 settings.settings,
             ) { efforts, saved ->
-                Fitness.estimate(
+                // Through the coach's own door, so a VMA the runner gave or measured sets
+                // the paces here exactly as it sets them in the plan.
+                CoachFitness.basis(
+                    vma = saved.coach.vma,
                     efforts = efforts.map { it.toRecentEffort() } +
                         listOfNotNull(saved.coach.baseline?.race),
                     today = today,
-                )
+                ).fitness
             }.collect { fitness ->
                 _ui.value = _ui.value.copy(fitness = fitness)
             }
