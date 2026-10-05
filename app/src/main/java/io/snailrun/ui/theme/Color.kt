@@ -62,6 +62,33 @@ val DarkScheme = darkColorScheme(
 )
 
 /**
+ * One colour per person on a shared session: [fill] for the avatar and for text naming
+ * them, [onFill] for the figure drawn on it.
+ *
+ * Hues the badges do not use — green is a hard day, coral a record, amber strength — so
+ * a person never reads as a kind of session. Every fill clears 5:1 against the surfaces
+ * in its scheme and against its own [onFill], so it is safe as text as well as a disc.
+ */
+data class PersonTone(val fill: Color, val onFill: Color)
+
+/** The runner first, then partners in turn. */
+val PeopleLight = listOf(
+    PersonTone(Color(0xFF2C5FCC), Color.White),  // blue, the runner: 5.6:1 on surface
+    PersonTone(Color(0xFF7A3DC2), Color.White),  // violet 6.18:1
+    PersonTone(Color(0xFFAD2F72), Color.White),  // magenta 5.91:1
+    PersonTone(Color(0xFF00707A), Color.White),  // teal 5.63:1
+    PersonTone(Color(0xFF4F5B7A), Color.White),  // slate 6.51:1
+)
+
+val PeopleDark = listOf(
+    PersonTone(Color(0xFF9DB9FF), Color(0xFF0A1F4D)),  // 9.63:1 on surface
+    PersonTone(Color(0xFFCDB0FF), Color(0xFF2A0F4D)),  // 10.02:1
+    PersonTone(Color(0xFFFFA3CF), Color(0xFF45072A)),  // 10.14:1
+    PersonTone(Color(0xFF6FD8E0), Color(0xFF00363B)),  // 11.19:1
+    PersonTone(Color(0xFFB9C3E0), Color(0xFF1C2438)),  // 10.63:1
+)
+
+/**
  * The route polyline and chart strokes. Graphics need 3:1, and the saturated
  * #1FA76E only reaches 2.97:1 on the light surface, so light mode uses a darker tone.
  */

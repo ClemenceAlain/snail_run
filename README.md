@@ -600,7 +600,9 @@ run recorded on a planned day strikes that day through.
 
 A partner is a name and a VMA under Settings → Coach — not a second user. They have no
 runs and no plan here; the app only translates the days you share. Open a day, pick them,
-and their version of every block appears under yours.
+and their version of every block appears under yours. Each runner is a snail in their own
+colour: blue for you, then violet, magenta, teal and slate for partners. Your snails face
+each other on a shared day.
 
 - **Their paces are your session at their speed.** Each of your paces is read back to the
   fraction of your VDOT it was written at, then forward at theirs. VMA becomes VDOT through

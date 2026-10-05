@@ -51,7 +51,7 @@ fun SessionSheet(
     strength: Workout? = null,
     action: Pair<String, () -> Unit>? = null,
     /** The partner's version of each block, when the session is shared. */
-    partnerName: String? = null,
+    partner: io.snailrun.domain.coach.Partner? = null,
     partnerLines: List<io.snailrun.ui.format.PartnerLine> = emptyList(),
     /** Above the steps: who the session is shared with, and how. */
     sharing: (@Composable () -> Unit)? = null,
@@ -83,7 +83,7 @@ fun SessionSheet(
                     workout = workout,
                     segments = segments ?: io.snailrun.domain.coach.WorkoutSegments.of(workout),
                     currentSegment = currentSegment,
-                    partnerName = partnerName,
+                    partner = partner,
                     partnerLines = partnerLines,
                 )
             }

@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import io.snailrun.domain.coach.CoachBaseline
 import io.snailrun.domain.coach.Pairing
+import io.snailrun.domain.coach.Partner
 import io.snailrun.domain.coach.SharedSession
 import io.snailrun.domain.coach.PlannedDay
 import io.snailrun.domain.coach.Races
@@ -53,6 +54,7 @@ import io.snailrun.ui.components.HelpButton
 import io.snailrun.ui.components.badgeTone
 import io.snailrun.ui.components.SessionSheet
 import io.snailrun.ui.components.SnailCard
+import io.snailrun.ui.components.PartnerTag
 import io.snailrun.ui.format.UiLocale
 import io.snailrun.ui.format.RunFormat
 import io.snailrun.ui.format.SessionFormat
@@ -139,7 +141,7 @@ fun CoachScreen(
                 herWorkout
             },
             onDismiss = { onExpand(day.date) },
-            partnerName = shared?.partner?.name,
+            partner = shared?.partner,
             partnerLines = remember(shared) { shared?.let { PartnerFormat.lines(it) }.orEmpty() },
             sharing = if (day.workout.type.isRun && !day.done) {
                 {
@@ -234,7 +236,7 @@ fun CoachScreen(
                 plan = plan,
                 today = today,
                 partnerOn = { date ->
-                    state.pairings[date]?.let { p -> state.partners.firstOrNull { it.id == p.partnerId }?.name }
+                    state.pairings[date]?.let { p -> state.partners.firstOrNull { it.id == p.partnerId } }
                 },
                 onExpand = onExpand,
                 onMove = { from, to -> onMove(plan.weekStart, from, to) },
@@ -278,7 +280,7 @@ fun CoachScreen(
 private fun DraggableWeek(
     plan: WeekPlan,
     today: LocalDate,
-    partnerOn: (LocalDate) -> String?,
+    partnerOn: (LocalDate) -> Partner?,
     onExpand: (LocalDate) -> Unit,
     onMove: (Int, Int) -> Unit,
 ) {
@@ -517,7 +519,7 @@ private fun RaceCard(plan: WeekPlan, state: CoachUiState) {
 private fun DayRow(
     day: PlannedDay,
     today: LocalDate,
-    partner: String?,
+    partner: Partner?,
     lifted: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -561,7 +563,7 @@ private fun DayRow(
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                     Badge(day.workout.type.label, day.workout.type.badgeTone)
                     if (day.strength != null) Badge("Strength", BadgeTone.Other)
-                    if (partner != null && !rest) Badge("With $partner", BadgeTone.Quiet)
+                    if (partner != null && !rest) PartnerTag(partner.id, partner.name)
                     // Replaces a strikethrough, which is easy to miss at a glance and
                     // reads as an error the rest of the time. Nothing is stored to say
                     // the day is done: there is a run on it, and that is the whole test.

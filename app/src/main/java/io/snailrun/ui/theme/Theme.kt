@@ -12,6 +12,8 @@ import androidx.compose.ui.graphics.Color
 data class SnailExtendedColors(
     val trace: Color,
     val traceMuted: Color,
+    /** [PersonTone]s: the runner at 0, partners after. See [SnailTheme.person]. */
+    val people: List<PersonTone> = PeopleLight,
 )
 
 private val LocalExtendedColors = staticCompositionLocalOf {
@@ -21,6 +23,22 @@ private val LocalExtendedColors = staticCompositionLocalOf {
 object SnailTheme {
     val extended: SnailExtendedColors
         @Composable @ReadOnlyComposable get() = LocalExtendedColors.current
+
+    /** The runner's own colour. */
+    val you: PersonTone
+        @Composable @ReadOnlyComposable get() = LocalExtendedColors.current.people.first()
+
+    /**
+     * A partner's colour, read off their id so it never changes and nothing extra is
+     * stored. Ids are handed out in order, so the first four partners never share one.
+     */
+    @Composable
+    @ReadOnlyComposable
+    fun person(partnerId: Int): PersonTone {
+        val people = LocalExtendedColors.current.people
+        val others = people.size - 1
+        return people[1 + Math.floorMod(partnerId - 1, others)]
+    }
 }
 
 /**
@@ -33,9 +51,9 @@ fun SnailRunTheme(
     content: @Composable () -> Unit,
 ) {
     val extended = if (darkTheme) {
-        SnailExtendedColors(trace = ColorSchemeTraceDark, traceMuted = Color(0xFF3A413C))
+        SnailExtendedColors(trace = ColorSchemeTraceDark, traceMuted = Color(0xFF3A413C), people = PeopleDark)
     } else {
-        SnailExtendedColors(trace = ColorSchemeTraceLight, traceMuted = Color(0xFFC9D0C9))
+        SnailExtendedColors(trace = ColorSchemeTraceLight, traceMuted = Color(0xFFC9D0C9), people = PeopleLight)
     }
 
     CompositionLocalProvider(LocalExtendedColors provides extended) {

@@ -102,7 +102,7 @@ fun RecordScreen(
             subtitle = request.subtitle,
             // The partner's lines follow the session they were written for, and a sheet
             // opened on the strength work is not it.
-            partnerName = todaysShared?.partner?.name.takeIf { request.workout.type != WorkoutType.Strength },
+            partner = todaysShared?.partner.takeIf { request.workout.type != WorkoutType.Strength },
             partnerLines = partnerLines,
         )
     }
@@ -158,7 +158,7 @@ fun RecordScreen(
                     detail = SessionDetailRequest(workout = workout)
                 },
                 onStartStrength = onStartStrength,
-                partnerName = todaysShared?.partner?.name,
+                partner = todaysShared?.partner,
                 partnerLines = partnerLines,
             )
             Spacer(Modifier.height(Spacing.l))
@@ -231,7 +231,7 @@ private fun TodaysSession(
     onArm: () -> Unit,
     onShowDetail: (Workout) -> Unit,
     onStartStrength: (Workout) -> Unit,
-    partnerName: String? = null,
+    partner: io.snailrun.domain.coach.Partner? = null,
     partnerLines: List<io.snailrun.ui.format.PartnerLine> = emptyList(),
 ) {
     SnailCard(
@@ -256,11 +256,17 @@ private fun TodaysSession(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = if (armed) "Loaded: ${session.name}" else "Today: ${session.name}",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = content,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = if (armed) "Loaded: ${session.name}" else "Today: ${session.name}",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = content,
+                        )
+                        partner?.let {
+                            Spacer(Modifier.size(Spacing.s))
+                            io.snailrun.ui.components.SnailPair(it.id, it.name, size = 22.dp)
+                        }
+                    }
                     Text(
                         text = sessionLine(session),
                         style = MaterialTheme.typography.bodyMedium,
@@ -278,7 +284,7 @@ private fun TodaysSession(
             // said it and a second copy of "8.0 km easy" reads as a rendering bug.
             if (session.steps.size > 1 || partnerLines.isNotEmpty()) {
                 Spacer(Modifier.height(Spacing.m))
-                SessionDetail(workout = session, partnerName = partnerName, partnerLines = partnerLines)
+                SessionDetail(workout = session, partner = partner, partnerLines = partnerLines)
             }
         }
 

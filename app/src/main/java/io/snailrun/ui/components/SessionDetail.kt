@@ -23,9 +23,11 @@ import io.snailrun.domain.coach.Workout
 import io.snailrun.domain.coach.WorkoutSegment
 import io.snailrun.domain.coach.WorkoutSegments
 import io.snailrun.domain.coach.WorkoutType
+import io.snailrun.domain.coach.Partner
 import io.snailrun.ui.format.PartnerLine
 import io.snailrun.ui.format.SessionBlock
 import io.snailrun.ui.format.SessionFormat
+import io.snailrun.ui.theme.SnailTheme
 import io.snailrun.ui.theme.Spacing
 
 /**
@@ -41,7 +43,7 @@ import io.snailrun.ui.theme.Spacing
  * between a plan and a place in a plan.
  *
  * [partnerLines], when the session is shared, puts the partner's version of each block
- * under the runner's, named [partnerName]: one list to read for two people, rather than
+ * under the runner's, each behind their own snail: one list to read for two people, rather than
  * two lists to keep in step at the side of a track.
  */
 @Composable
@@ -50,7 +52,7 @@ fun SessionDetail(
     modifier: Modifier = Modifier,
     segments: List<WorkoutSegment> = remembered(workout),
     currentSegment: Int? = null,
-    partnerName: String? = null,
+    partner: Partner? = null,
     partnerLines: List<PartnerLine> = emptyList(),
 ) {
     if (workout.type == WorkoutType.Strength) {
@@ -72,7 +74,7 @@ fun SessionDetail(
                 repDone = currentSegment
                     ?.takeIf { it in block.range }
                     ?.let { segments.getOrNull(it)?.repIndex },
-                partner = partnerName?.let { name -> partnerLines.getOrNull(index)?.let { name to it } },
+                partner = partner?.let { who -> partnerLines.getOrNull(index)?.let { who to it } },
             )
         }
     }
@@ -84,7 +86,7 @@ private fun BlockRow(
     current: Boolean,
     done: Boolean,
     repDone: Int?,
-    partner: Pair<String, PartnerLine>? = null,
+    partner: Pair<Partner, PartnerLine>? = null,
 ) {
     val faded = done && !current
     val accent = MaterialTheme.colorScheme.primary
@@ -123,37 +125,60 @@ private fun BlockRow(
                     Badge("on $repDone", BadgeTone.Hard)
                 }
             }
-            if (block.detail.isNotEmpty()) {
-                Text(
-                    text = block.detail,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            block.recovery?.let {
-                Text(
-                    text = "↳ $it",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            partner?.let { (name, line) ->
-                val tint = MaterialTheme.colorScheme.tertiary
-                Text(
-                    text = if (line.detail.isEmpty()) name else "$name · ${line.detail}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = tint,
-                )
-                line.recovery?.let {
-                    Text(text = "↳ $it", style = MaterialTheme.typography.bodyMedium, color = tint)
+            val muted = MaterialTheme.colorScheme.onSurfaceVariant
+            if (partner == null) {
+                if (block.detail.isNotEmpty()) {
+                    Text(text = block.detail, style = MaterialTheme.typography.bodyMedium, color = muted)
                 }
+                block.recovery?.let {
+                    Text(text = "↳ $it", style = MaterialTheme.typography.bodyMedium, color = muted)
+                }
+            } else {
+                // Shared: one line each, behind each runner's snail and in their colour,
+                // so the two read apart at a glance without a word of "you" or a name.
+                val (who, line) = partner
+                Spacer(Modifier.height(Spacing.xs))
+                PersonLines(
+                    snail = { YouSnail(size = 18.dp) },
+                    detail = block.detail,
+                    recovery = block.recovery,
+                    color = SnailTheme.you.fill,
+                )
+                Spacer(Modifier.height(Spacing.xs))
+                PersonLines(
+                    snail = { PartnerSnail(who.id, who.name, size = 18.dp) },
+                    detail = line.detail,
+                    recovery = line.recovery,
+                    color = SnailTheme.person(who.id).fill,
+                )
                 line.note?.let {
-                    Text(
-                        text = it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Spacer(Modifier.height(Spacing.xs))
+                    Text(text = it, style = MaterialTheme.typography.bodySmall, color = muted)
                 }
+            }
+        }
+    }
+}
+
+/** One runner's version of a block: their snail, then what they run. */
+@Composable
+private fun PersonLines(
+    snail: @Composable () -> Unit,
+    detail: String,
+    recovery: String?,
+    color: Color,
+) {
+    Row(verticalAlignment = Alignment.Top) {
+        snail()
+        Spacer(Modifier.width(Spacing.s))
+        Column {
+            Text(
+                text = detail.ifEmpty { "—" },
+                style = MaterialTheme.typography.bodyMedium,
+                color = color,
+            )
+            recovery?.let {
+                Text(text = "↳ $it", style = MaterialTheme.typography.bodyMedium, color = color)
             }
         }
     }

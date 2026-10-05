@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -20,8 +21,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
 import io.snailrun.domain.coach.Partner
 import io.snailrun.domain.coach.Partners
+import io.snailrun.ui.components.PartnerSnail
 import io.snailrun.ui.theme.Spacing
 
 /**
@@ -51,6 +54,8 @@ fun PartnersSection(
         }
         partners.forEach { partner ->
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                PartnerSnail(partner.id, partner.name, size = 32.dp)
+                Spacer(Modifier.width(Spacing.m))
                 Text(
                     text = "${partner.name} · VMA ${vmaText(partner.vmaKmh)} km/h",
                     style = MaterialTheme.typography.bodyLarge,
@@ -86,6 +91,7 @@ private fun PartnerDialog(initial: Partner, onDismiss: () -> Unit, onSave: (Part
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        icon = { PartnerSnail(initial.id, initial.name, size = 48.dp) },
         title = { Text(if (initial.name.isEmpty()) "Add a partner" else "Edit ${initial.name}") },
         text = {
             Column {
