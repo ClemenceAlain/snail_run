@@ -24,16 +24,17 @@ network socket. Nothing it records can leave the device.
 - Draws the trace on an offline map, and opens it full screen to drag, pinch and
   double-tap around. A small demo map is in the APK, so that works before you supply
   one.
-- Suggests the next four weeks of training from the runs already recorded: named
-  sessions, paces derived from your own best efforts, and volume that cannot ramp faster
-  than is safe. Tap a day to see the session written out step by step. Step between weeks
-  with the arrows, hold a day to drag it elsewhere. Optionally counts back from a race
-  date. On a fresh install it asks four questions about the month before it, so the first
-  week fits you rather than a beginner.
+- Coaches you through a training plan for a 5 km, 10 km, half or marathon — or no race
+  at all. It asks for your VMA first; if you do not know it, the plan opens with the
+  six-minute test and reads your VMA off the run. Sessions follow Decathlon's 10 km
+  plan: VMA reps, race-pace blocks and a long run, a lighter fourth week and a taper.
+  Every pace is a percentage of your VMA, and every number says why it is what it is.
+  Step back through the weeks you have done, kept as they were planned, and forward to
+  race day. Hold a day to drag it elsewhere.
 - Puts two bodyweight strength sessions a week beside the running, on the days that can
   take them, and counts you through one exercise at a time when you start it.
-- Backs every run up to one file you choose — and your race, your rearranged weeks and
-  your starting point with them — and puts one back.
+- Backs every run up to one file you choose — and your plan, your VMA, your past weeks
+  and your rearranged ones with them — and puts one back.
 - Survives being killed mid-run: the track is in the database, and the app offers to
   finish or continue it on next launch.
 
@@ -388,86 +389,100 @@ Two details worth knowing before touching it:
 
 ## Coaching
 
-The Coach tab suggests the week's training, built from the runs already in the database.
-There is no model in it. Every number is arithmetic with a reason attached, and the
-reason is on the screen beside it.
+The Coach tab runs a training plan you start yourself. There is no model in it. Every
+number is arithmetic with a reason attached, and the reason is one tap away.
 
-**Paces come from Daniels and Gilbert's equations.** A distance and a time give an oxygen
-cost; the length of the effort gives the fraction of maximum it was held at; dividing one
-by the other gives a VO2max, and every training pace is a percentage of it. `VdotTest`
-checks all five against Daniels' published table at VDOT 50 — the row a 20:00 5 k lands
-on — so a drift of fifteen seconds a kilometre fails the build rather than turning up on
-somebody's interval session.
+**A plan is four answers.** Your VMA, your race (distance and date, or none), a target
+time, and two, three or four sessions a week. They are stored as they were given, in one
+preference. Everything else — which week this is, what the sessions are, what pace they
+are written in — is worked out from them each time a week is shown, so a template change
+never needs a migration.
 
-**The effort it reads is the longest recent one, not the fastest.** These are not race
-results: they are the quickest stretch the app could find inside a training run, and a
-1 km one is usually a surge to a crossing or a single rep. Read as a time trial it
-overstates what the runner can hold and every pace comes out too fast. So efforts of 5 km
-and up are trusted, and where none exists the estimate is marked provisional — which buys
-easy and threshold work and refuses to price an interval session at all. The bias that
-leaves is deliberate: an effort pulled from a training run under-reads fitness far more
-often than it over-reads it, and easy is the mistake you recover from on the next run.
+**VMA first.** VMA, maximal aerobic speed, is the speed at which you reach your maximum
+oxygen uptake, and every fast session is written as a percentage of it: 105 % of a
+14 km/h VMA is 4:05/km. You can type it, enter the distance of a six-minute test you have
+already run, or say you do not know. Then the plan's first quality session is the test
+itself — 15 minutes easy, three strides, then six minutes as far as you can, the SAC
+Athlétisme protocol: metres ÷ 100 is your VMA in km/h. When you save the run, the coach
+replays the stored track through the same scheduler the run screen uses and reads the
+VMA off the six-minute segment alone, so the warm-up cannot drag it down. A test stopped
+before 5:30 is not read; the tab asks for the distance instead. Twelve weeks after the
+last measurement the plan asks for a new test.
 
-**The sessions are the named ones**: easy, recovery, long, progression, steady, tempo,
-cruise intervals, intervals, hill repeats, fartlek, strides and repetitions. Which two a
-week gets rotates on the week number, so the plan varies without ever being random —
-the same history always produces the same week, which is what lets the tests assert one.
+**The engine underneath is still VDOT.** A six-minute test is a six-minute race, so a VMA
+goes through Daniels and Gilbert's equations like any other effort: `Vdot.fromEffort(VMA
+× 100 m, 6 min)`. A 15 km/h VMA comes out near VDOT 44. That gives the easy range, the
+race predictions and, without a VMA, an estimate worked back from your best recent effort
+of 5 km or more — shown as an estimate, with the test offered to replace it. `VdotTest`
+checks the equations against Daniels' published table at VDOT 50.
 
-**Tap a day to see the session written out.** Warm-up, every rep, the jog between them
-and the cool-down, in the order they are run, with the target and the pace band on each.
-It is the same component the record screen uses mid-run with the current step lit, so a
-session read on Monday and run on Thursday cannot be worded two different ways.
+**The sessions follow Decathlon Coach's "10 km in 8 weeks".** Three a week: a VMA session
+on Tuesday, a race-pace session on Thursday, an easy long run on Sunday. Every quality
+session is framed the same way: 20 minutes easy, 5 minutes of drills, three 100 m strides,
+the main set, 10 minutes easy. The 10 km plan is the published table with your race pace
+in place of its 15.3 km/h. The VMA reps go 12 × 200 m at 105 %, 12 × 300 m, 10 × 400 m,
+2 × (8 × 200 m) and 8 × 500 m at 95 %. The race-pace blocks grow from 5 × 1 km to 2 × 3 km
+and a 3 + 2 + 1 km ladder. Week four is lighter. Week eight is the race. `PlanScheduleTest`
+holds the template to the table line by line.
 
-**Every figure is one a runner can hit.** The arithmetic divides budgets by rep counts and
-lands on 913 m and 6.31 km; both are honest and neither is a prescription. So `Round`
-snaps rep distances to 50 m, block distances to 100 m and any duration that fell out of a
-division to a whole minute — once, when the session is built, not when it is printed, so
-the card and the rep the app counts you through are the same number. A duration somebody
-chose, like a twenty-second stride, is left alone: rounding that would be rewriting the
-session rather than tidying it.
+The 5 km (8 weeks), half (12) and marathon (16) plans use the same structure with the
+app's own numbers. The 5 km has shorter reps. The half and marathon add threshold
+sessions at 80–85 % of VMA, longer race-pace blocks and longer runs, and a lighter week
+every fourth. Two sessions a week keeps the long run and alternates the other two. Four
+adds a 40-minute easy Friday. Under a 12 km/h VMA, runs are about a fifth shorter and rep
+counts a quarter lower: the templates are written for a runner who already runs 10 km
+under 45 minutes.
 
-Alongside that, a session's total is now the sum of the sequence it is actually run in,
-taken from `WorkoutSegments` rather than assembled by hand in each builder. The segment
-list is what the recorder counts through, so deriving the total from it is the only way
-the two cannot drift apart. `WorkoutRoundingTest` asserts both properties over every
-session type at a spread of budgets, so a session added later fails the build rather than
-quietly shipping a 913 m rep.
+**The race date fits the template, not the other way round.** With more time than the
+template, four-week base cycles go in front of it, ending on a lighter week. With less,
+the template's first weeks are skipped, but the taper and race week are always kept.
+Race week is laid out from the race date: the last short VMA session five days before, a
+20-minute shake-out two days before, the race on the day. With no race, the 10 km month
+repeats, its second half the second time round, at your predicted 10 km pace.
+
+**Race pace is your target, or your prediction.** The wizard fills in the time today's
+fitness predicts. You can leave it, or type the time you want. A target more than 5 %
+beyond your current fitness gets a warning, not a refusal.
+
+**Every number explains itself.** Each step of a session carries its intensity ("105 %
+VMA") beside its pace, and a "why" sentence on the session's sheet. The why says what the
+pace is a percentage of, why the recovery is that short, what the session trains, and what
+to do without a VMA yet. Each session also has a tip, the way a coach would say it at the
+track. **About this plan** on the plan card explains the plan as a whole:
+
+- how the weeks were fitted to your race;
+- where the paces come from, with the 105/100/95/85/80 % ladder at your VMA;
+- the four-fifths-easy rule;
+- what each kind of session does;
+- why weeks get lighter and why the plan tapers.
+
+`PlanWeeksTest` fails the build if any session in any template lacks a reason, a tip or
+an explained step.
+
+**Every figure is one a runner can hit.** Rep distances are on a 50 m grid, durations in
+whole minutes, and a session's total is the sum of the sequence the recorder will count
+you through (`Workouts.metersOf`). `WorkoutRoundingTest` and `PlanWeeksTest` assert that
+over every session.
 
 **Two strength sessions a week.** Bodyweight, no equipment, fifteen or twenty minutes:
 squats, split squats, calf raises, glute bridges and a plank one week; single-leg
-deadlifts, side planks, step-ups and hip work the next. They carry no distance at all,
-which is the whole design — they can never compete with the volume budget, shorten a run
-to make room for themselves, or be mistaken for something to record. A runner who traded
-three kilometres of easy running for a set of squats would have made themselves weaker.
+deadlifts, side planks, step-ups and hip work the next. They carry no distance, so they
+never reach a week's totals or the recorder. They go on rest days first, and never the day
+before anything hard: loaded legs are slow legs for about a day. Race and taper weeks get
+one.
 
-They go on rest days first, and never the day before anything hard: loaded legs are slow
-legs for about a day, and a tempo run on them is a tempo run at the wrong pace. A week
-with six running days has no room left for that, so the fallback puts the strength work
-*on* a hard day, after the running — hard days hard is a worse-looking plan and a
-better-recovered runner. Race week gets one, not two.
+**The paces are not on this tab.** They live under **Runs → Records**, closed until tapped.
+They come from the same place as the plan's: your VMA if you gave one, your efforts if not.
 
-**The week header is the week, not a summary of it.** Arrows, the dates, and any warning
-about a rearrangement. The paragraph restating the week's total that used to sit under it
-was the one thing on the screen nobody read: the seven cards immediately below each carry
-their own distance.
-
-**The paces are not on this tab at all.** They used to sit open at the bottom of it under
-a heading giving a VDOT, and two things were wrong with that. A VDOT is a number with no
-use at the point of reading it: it does not tell you how to run today, and a low one reads
-as a verdict. And the paces themselves answer a question about the runner rather than
-about the week — a personal best over 5 km and the threshold pace it implies are the same
-fact said twice. So they live under **Runs → Records**, closed until tapped, with the VDOT
-as a footnote inside. They are still *used* here, written into every session; they are
-just no longer recited.
-
-**Four weeks are planned, one shown at a time.** Arrows step between them. Each week
-after the first is planned against a history
-that already contains the weeks before it, as though they had been run exactly as
-written, so the second week's ten per cent is ten per cent of the first week's plan. A
-block built without rolling the history forward would show four identical weeks and no
-progression at all. Fitness is deliberately *not* rolled forward: the paces stay at what
-your efforts say today, because a projected VDOT four weeks out is a guess, and a guess
-in a pace is the one thing this module exists to avoid.
+**Weeks ahead are worked out; weeks behind are kept.** The arrows go forward to race week,
+or half a year for a plan with no race. Each future week is planned when you look at it,
+from the plan and today's VMA, so a new VMA reprices all of them at once. The current week
+is saved each time it is planned, one JSON row per week in the `coach_weeks` table (schema
+4), and the row stops changing when the week ends. So the back arrow shows the weeks you
+were actually given, at the paces you had then, even after a new VMA or a new plan. Whether
+a day was done is still read off the runs, so a run typed in later ticks the day it was run
+on. A week the app was never opened in was never saved and is skipped. Starting a new plan
+replaces this week and keeps every week before it.
 
 **Finishing a run is held, not tapped.** It closes the run and drops the recorder's
 state, there is no undo, and the control sits under the thumb of somebody out of breath
@@ -477,49 +492,11 @@ progress. A confirmation dialog is the usual answer and is worse: it puts a seco
 on screen for a shaking hand, and trains people to dismiss it without reading.
 
 **Hold a day to drag it somewhere else.** The days it passes shift along by one, because
-that is what moving a session means — pushing Tuesday's tempo to Thursday slides
-Wednesday and Thursday back, rather than trading the tempo for whatever Thursday held.
-Only the rearrangement is stored, keyed on the week; the plan itself is still recomputed
-from the history, so a move survives a new run, a restart and a change to the planner.
-If the move stacks two hard days or leaves four days running without a rest, the week
-says so in red and leaves it alone — somebody who has to be at work on Tuesday knows
-something the planner does not.
-
-The rules that exist so a suggestion cannot injure someone, all of them assertions in
-`WeekPlannerTest`:
-
-- **Volume rises by at most ten per cent of last week, and never past 1.3× the four-week
-  average.** The second cap is the one that matters. The ten-per-cent rule compounds a
-  spike; the ratio refuses to. Past 1.5× the week is held level and stripped of quality.
-- **The long run is capped twice** — a share of the week *and* 1.1× the longest run of
-  the last four weeks. A runner whose 50 km weeks are made of 8 km runs does not get a
-  15 km Sunday because the arithmetic allowed it.
-- **Hard running is capped as a fraction of the week**: threshold 10 %, interval 8 %,
-  repetition 5 %, marathon pace 20 %. Sessions are shortened to fit the cap; the week is
-  never lengthened to fit a session.
-- **No two hard days touch**, the long run included.
-- **Frequency is never increased.** How many days a week someone runs is a decision about
-  their life, and the coach works inside it.
-- Three rising weeks produce a cutback; a fortnight off produces a return-to-running week
-  at sixty per cent; under three runs in four weeks produces a base week and says so.
-
-**A fresh install asks where you are starting.** The coach reads history and a new phone
-has none, so the first four weeks it plans are the ones it knows least about: a
-50 km-a-week runner would be handed three easy jogs and no way out but to spend a month
-proving what they already knew. So the tab asks four questions — days a week, a typical
-week's distance, the longest run of the last month, and a recent race if there was one —
-and turns the answers into runs on the days of the four weeks before you answered that
-you have not since filled with a real one.
-
-Synthetic runs rather than a special case inside the planner, so every rule already
-written applies to them unchanged, and there is no second code path to disagree with the
-first. The race is offered to the fitness estimate on the same terms as the efforts the
-app found for itself: the best one wins. And because the answers describe a fixed four
-weeks in the past, they age out of the coach's windows on their own, day by day, exactly
-as real runs do — a month later none of it is left, which is the point at which the app
-knows more about you than you just told it. Nothing has to be cleared or expired, and
-somebody who answers and then stops running for a fortnight gets the same
-return-to-running week as anybody else.
+that is what moving a session means: pushing Tuesday's VMA session to Wednesday slides
+Wednesday back a day, rather than trading places with it. Only the rearrangement is stored,
+keyed on the week, so a move survives a new run, a restart and a new VMA. If the move
+stacks two hard days or leaves four days running without a rest, the week says so in red
+and leaves it alone. A saved past week cannot be rearranged.
 
 ### The strength session, counted
 
@@ -544,12 +521,6 @@ entry in the runs list would be a lie about a real piece of training. The conseq
 stated because it is the obvious next question: a completed strength session is not ticked
 off anywhere, since the coach infers completion from runs and there is no run. Doing that
 properly needs somewhere to store it, which is a schema change and has not been made.
-
-**A race is optional.** Settings → Coach takes a distance and a date, and the plan then
-counts back from it: build past four weeks out, sharpen inside four, taper inside two.
-The taper cuts volume and leaves the intensity alone — cutting both is what makes a
-runner arrive rested and flat. It also shows what the distance would take at today's
-fitness, which is a reading and not a target.
 
 ### Running the session
 
@@ -584,17 +555,12 @@ target, its actual pace and the difference. That table is worked out from the st
 each time it is opened rather than written down during the run, so improving the position
 filter improves every past session with it.
 
-What *is* stored is the prescription — the plan is rebuilt from your history every week, so
-by next week the session this run was is not one the coach would still write — and the
-handful of times you pressed NEXT, which is the one thing about a guided run that cannot
+What *is* stored is the prescription — the weeks ahead are replanned whenever your VMA
+moves, so the session this run was is not necessarily one the coach would still write —
+and the handful of times you pressed NEXT, which is the one thing about a guided run that cannot
 be worked out again. Where you had got to is not stored: after a crash it is rebuilt by
 running the track back through the same scheduler, and `RunRecorderTest` checks the two
 agree.
-
-**Nothing about a plan is stored** except where you have moved something. It is
-recomputed from the history every time the tab is opened, so it cannot claim on Saturday
-that you still owe it a tempo you have since run. Completion is inferred the same way: a
-run recorded on a planned day strikes that day through.
 
 ### Running it with someone
 
