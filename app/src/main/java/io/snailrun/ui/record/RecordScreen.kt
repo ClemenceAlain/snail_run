@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.res.painterResource
 import io.snailrun.R
@@ -129,87 +131,95 @@ fun RecordScreen(
             .padding(horizontal = Spacing.screen),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        StatusRow(
-            isRecording = active != null && !active.isPaused,
-            isPaused = active?.isPaused == true,
-            isAutoPaused = active?.metrics?.status == RunStatus.PAUSED_AUTO,
-            quality = active?.metrics?.gpsQuality ?: GpsQuality.NO_FIX,
-            gpsEnabled = gpsEnabled,
-            demoMode = demoMode,
-        )
-
-        Spacer(Modifier.height(Spacing.l))
-
-        if (active?.workout != null) {
-            SessionPanel(
-                progress = active.workout,
-                partner = todaysShared?.partner?.takeIf { partnerLive != null },
-                partnerNow = partnerLive?.getOrNull(active.workout.segment.index),
-                onNext = onNextSegment,
-                onEnd = onEndSession,
-                onShowDetail = {
-                    detail = SessionDetailRequest(
-                        // The workout itself is gone by now — see the comment on
-                        // RecordingState.Active.workoutSegments — so the sheet is given
-                        // the sequence directly and a shell to title it with.
-                        workout = Workout(
-                            type = active.workoutType ?: WorkoutType.Easy,
-                            totalMeters = 0.0,
-                            steps = emptyList(),
-                            reason = "",
-                        ),
-                        segments = active.workoutSegments,
-                        currentSegment = active.workout.segment.index,
-                        subtitle = "step ${active.workout.segmentsDone + 1} of " +
-                            "${active.workout.segmentCount}",
-                    )
-                },
-            )
-            Spacer(Modifier.height(Spacing.l))
-        } else if (active == null && (todaysSession != null || todaysStrength != null)) {
-            TodaysSession(
-                session = todaysSession,
-                strength = todaysStrength,
-                armed = armedSession != null,
-                onArm = { onArmSession(if (armedSession == null) todaysSession else null) },
-                onShowDetail = { workout ->
-                    detail = SessionDetailRequest(workout = workout)
-                },
-                onStartStrength = onStartStrength,
-                partner = todaysShared?.partner,
-                partnerLines = partnerLines,
-            )
-            Spacer(Modifier.height(Spacing.l))
-        }
-
-        MetricReadout(
-            value = RunFormat.duration(active?.metrics?.activeDurationMs ?: 0L),
-            caption = "elapsed",
-            valueStyle = SnailType.metricHero,
-        )
-
-        Spacer(Modifier.height(Spacing.section))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
+        // Everything above the control scrolls, and the control does not. A long session
+        // card would otherwise push the start button off the bottom of the screen.
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            MetricReadout(
-                value = RunFormat.distanceKm(active?.metrics?.distanceMeters ?: 0.0),
-                caption = "km",
+            StatusRow(
+                isRecording = active != null && !active.isPaused,
+                isPaused = active?.isPaused == true,
+                isAutoPaused = active?.metrics?.status == RunStatus.PAUSED_AUTO,
+                quality = active?.metrics?.gpsQuality ?: GpsQuality.NO_FIX,
+                gpsEnabled = gpsEnabled,
+                demoMode = demoMode,
             )
+
+            Spacer(Modifier.height(Spacing.l))
+
+            if (active?.workout != null) {
+                SessionPanel(
+                    progress = active.workout,
+                    partner = todaysShared?.partner?.takeIf { partnerLive != null },
+                    partnerNow = partnerLive?.getOrNull(active.workout.segment.index),
+                    onNext = onNextSegment,
+                    onEnd = onEndSession,
+                    onShowDetail = {
+                        detail = SessionDetailRequest(
+                            // The workout itself is gone by now — see the comment on
+                            // RecordingState.Active.workoutSegments — so the sheet is given
+                            // the sequence directly and a shell to title it with.
+                            workout = Workout(
+                                type = active.workoutType ?: WorkoutType.Easy,
+                                totalMeters = 0.0,
+                                steps = emptyList(),
+                                reason = "",
+                            ),
+                            segments = active.workoutSegments,
+                            currentSegment = active.workout.segment.index,
+                            subtitle = "step ${active.workout.segmentsDone + 1} of " +
+                                "${active.workout.segmentCount}",
+                        )
+                    },
+                )
+                Spacer(Modifier.height(Spacing.l))
+            } else if (active == null && (todaysSession != null || todaysStrength != null)) {
+                TodaysSession(
+                    session = todaysSession,
+                    strength = todaysStrength,
+                    armed = armedSession != null,
+                    onArm = { onArmSession(if (armedSession == null) todaysSession else null) },
+                    onShowDetail = { workout ->
+                        detail = SessionDetailRequest(workout = workout)
+                    },
+                    onStartStrength = onStartStrength,
+                    partner = todaysShared?.partner,
+                    partnerLines = partnerLines,
+                )
+                Spacer(Modifier.height(Spacing.l))
+            }
+
             MetricReadout(
-                value = RunFormat.pace(active?.metrics?.paceSecPerKm),
-                caption = "/km",
+                value = RunFormat.duration(active?.metrics?.activeDurationMs ?: 0L),
+                caption = "elapsed",
+                valueStyle = SnailType.metricHero,
             )
+
+            Spacer(Modifier.height(Spacing.section))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+            ) {
+                MetricReadout(
+                    value = RunFormat.distanceKm(active?.metrics?.distanceMeters ?: 0.0),
+                    caption = "km",
+                )
+                MetricReadout(
+                    value = RunFormat.pace(active?.metrics?.paceSecPerKm),
+                    caption = "/km",
+                )
+            }
+
+            Spacer(Modifier.height(Spacing.xxl))
         }
 
-        Spacer(Modifier.height(Spacing.xxl))
-
-        // The flexible space is the design: it keeps the numbers high, where they are
-        // read, and the control low, where the thumb is.
-        Spacer(Modifier.weight(1f))
-
+        // The weighted column above is the design: it keeps the numbers high, where they
+        // are read, and the control low, where the thumb is.
         Controls(
             isRecording = active != null,
             isPaused = active?.isPaused == true,
