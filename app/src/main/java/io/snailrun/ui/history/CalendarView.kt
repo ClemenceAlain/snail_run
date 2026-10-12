@@ -149,10 +149,11 @@ private fun MonthTotals(month: CalendarMonth, modifier: Modifier = Modifier) {
 
         Spacer(Modifier.height(Spacing.s))
         Text(
-            text = when (month.runCount) {
+            // Days, not runs: one outing is often saved as several recordings.
+            text = when (month.activeDays) {
                 0 -> "No runs this month"
-                1 -> "1 run"
-                else -> "${month.runCount} runs on ${month.activeDays} days"
+                1 -> "1 day of running"
+                else -> "${month.activeDays} days of running"
             },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -13,6 +13,8 @@ data class ProgressBucket(
     val meters: Double,
     val movingMs: Long,
     val runCount: Int,
+    /** Days with at least one run. A run split into several recordings is still one day. */
+    val activeDays: Int,
 )
 
 /**
@@ -52,6 +54,7 @@ object Progress {
                 meters = days.sumOf { it.meters },
                 movingMs = days.sumOf { it.movingMs },
                 runCount = days.sumOf { it.runCount },
+                activeDays = days.count { it.runCount > 0 },
             )
         }
     }

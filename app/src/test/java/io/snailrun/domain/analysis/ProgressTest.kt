@@ -46,6 +46,16 @@ class ProgressTest {
         assertEquals(10_000.0, buckets[0].meters, 0.001)
         assertEquals(13_000.0, buckets[1].meters, 0.001)
         assertEquals(2, buckets[1].runCount)
+        assertEquals(2, buckets[1].activeDays)
+    }
+
+    @Test
+    fun `a run split into several recordings counts as one day`() {
+        val split = day("2026-09-15", 10.0).copy(runCount = 3)
+        val week = Progress.buckets(listOf(split), ProgressPeriod.Week, 1, today).single()
+
+        assertEquals(3, week.runCount)
+        assertEquals(1, week.activeDays)
     }
 
     @Test

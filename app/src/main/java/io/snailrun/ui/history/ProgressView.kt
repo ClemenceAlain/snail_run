@@ -104,7 +104,7 @@ fun ProgressView(
                 metrics = listOf(
                     RunFormat.distanceKm(latest.meters) to "km",
                     RunFormat.duration(latest.movingMs) to "time",
-                    "${latest.runCount}" to "runs",
+                    "${latest.activeDays}" to "days",
                 ),
             )
         }
@@ -122,7 +122,7 @@ fun ProgressView(
                 metrics = listOf(
                     RunFormat.distanceKm(buckets.sumOf { it.meters }) to "km",
                     RunFormat.duration(buckets.sumOf { it.movingMs }) to "time",
-                    "${buckets.sumOf { it.runCount }}" to "runs",
+                    "${buckets.sumOf { it.activeDays }}" to "days",
                 ),
             )
         }
