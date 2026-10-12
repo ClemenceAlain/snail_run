@@ -68,10 +68,11 @@ class PlanWeeksTest {
         val fast = runs(week(plan(), 0)).first().workout.steps.first { it.kind == SegmentKind.Work }
         assertEquals(12, fast.repeats)
         assertEquals(200.0, fast.distanceM)
-        // 105 % of 14 km/h.
-        assertEquals(245.0, fast.paceSecPerKm!!.start, 1.0)
-        assertEquals("105 % VMA", fast.intensity)
-        assertTrue(fast.why!!, fast.why!!.contains("4:05/km") && fast.why!!.contains("14.0 km/h"))
+        // 110–115 % of 14 km/h: 3:44–3:54/km, faster end first.
+        assertEquals(223.6, fast.paceSecPerKm!!.start, 1.0)
+        assertEquals(233.8, fast.paceSecPerKm!!.endInclusive, 1.0)
+        assertEquals("110–115 % VMA", fast.intensity)
+        assertTrue(fast.why!!, fast.why!!.contains("3:44–3:54/km") && fast.why!!.contains("14.0 km/h"))
     }
 
     @Test

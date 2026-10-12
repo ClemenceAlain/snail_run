@@ -420,7 +420,8 @@ checks the equations against Daniels' published table at VDOT 50.
 on Tuesday, a race-pace session on Thursday, an easy long run on Sunday. Every quality
 session is framed the same way: 20 minutes easy, 5 minutes of drills, three 100 m strides,
 the main set, 10 minutes easy. The 10 km plan is the published table with your race pace
-in place of its 15.3 km/h. The VMA reps go 12 × 200 m at 105 %, 12 × 300 m, 10 × 400 m,
+in place of its 15.3 km/h, and its short reps run faster: 200 m at 110–115 % and 300 m at
+105–110 %, in every plan. The VMA reps go 12 × 200 m, 12 × 300 m, 10 × 400 m at 95–100 %,
 2 × (8 × 200 m) and 8 × 500 m at 95 %. The race-pace blocks grow from 5 × 1 km to 2 × 3 km
 and a 3 + 2 + 1 km ladder. Week four is lighter. Week eight is the race. `PlanScheduleTest`
 holds the template to the table line by line.
@@ -444,14 +445,14 @@ repeats, its second half the second time round, at your predicted 10 km pace.
 fitness predicts. You can leave it, or type the time you want. A target more than 5 %
 beyond your current fitness gets a warning, not a refusal.
 
-**Every number explains itself.** Each step of a session carries its intensity ("105 %
+**Every number explains itself.** Each step of a session carries its intensity ("110–115 %
 VMA") beside its pace, and a "why" sentence on the session's sheet. The why says what the
 pace is a percentage of, why the recovery is that short, what the session trains, and what
 to do without a VMA yet. Each session also has a tip, the way a coach would say it at the
 track. **About this plan** on the plan card explains the plan as a whole:
 
 - how the weeks were fitted to your race;
-- where the paces come from, with the 105/100/95/85/80 % ladder at your VMA;
+- where the paces come from, with the 115/110/105/100/95/85/80 % ladder at your VMA;
 - the four-fifths-easy rule;
 - what each kind of session does;
 - why weeks get lighter and why the plan tapers.

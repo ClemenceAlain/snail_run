@@ -92,7 +92,7 @@ object PlanExplainer {
                 "six-minute test measures it. Run as far as you can in six minutes: the " +
                 "distance in metres ÷ 100 is your VMA in km/h."
         }
-        val ladder = listOf(1.05, 1.0, 0.95, 0.85, 0.80).joinToString(", ") { pct ->
+        val ladder = listOf(1.15, 1.10, 1.05, 1.0, 0.95, 0.85, 0.80).joinToString(", ") { pct ->
             "${CoachText.percent(pct)} = ${CoachText.pace(Vmas.paceSecPerKm(vma, pct))}"
         }
         val specific = position?.let { pos ->

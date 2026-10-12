@@ -101,8 +101,9 @@ class PlanScheduleTest {
         fun pace(i: Int) = w[i].second as SessionSpec.RacePace
         fun long(i: Int) = (w[i].third as SessionSpec.Easy).minutes
 
-        assertEquals(listOf(12, 200.0, 1.05..1.05, 100.0), vma(0).let { listOf(it.reps, it.repM, it.pct, it.recoveryM) })
-        assertEquals(listOf(12, 300.0, 1.0..1.05), vma(1).let { listOf(it.reps, it.repM, it.pct) })
+        // The table's 200 m and 300 m reps, run faster: 110–115 % and 105–110 %.
+        assertEquals(listOf(12, 200.0, 1.10..1.15, 100.0), vma(0).let { listOf(it.reps, it.repM, it.pct, it.recoveryM) })
+        assertEquals(listOf(12, 300.0, 1.05..1.10), vma(1).let { listOf(it.reps, it.repM, it.pct) })
         assertEquals(listOf(10, 400.0, 0.95..1.0), vma(2).let { listOf(it.reps, it.repM, it.pct) })
         assertEquals(listOf(2, 8, 200.0, 150_000L), vma(4).let { listOf(it.sets, it.reps, it.repM, it.setRecoveryMs) })
         assertEquals(listOf(8, 500.0, 0.95..0.95, 200.0), vma(5).let { listOf(it.reps, it.repM, it.pct, it.recoveryM) })

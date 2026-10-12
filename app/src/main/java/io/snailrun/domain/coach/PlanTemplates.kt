@@ -99,7 +99,8 @@ data class PlanTemplate(
  * The plans, written down.
  *
  * The 10 km is Decathlon Coach's "40 min au 10 km en 8 semaines" as published, with its
- * race pace swapped for the runner's own: three sessions a week, one VMA, one at race
+ * race pace swapped for the runner's own and its 200 m and 300 m reps run faster, at
+ * 110–115 % and 105–110 % of VMA: three sessions a week, one VMA, one at race
  * pace, one easy and long, a lighter fourth week and a taper into the race. The other
  * three follow the same grammar, scaled — shorter reps and shorter long runs for the
  * 5 km, threshold and longer race-pace blocks for the half and the marathon, a lighter
@@ -163,23 +164,24 @@ object PlanTemplates {
     private val shakeout = SessionSpec.Easy(20, strides = 5, tip = SHAKEOUT)
     private val race = SessionSpec.Race(RACE)
 
-    private const val P105 = 1.05
-    private val at105 = P105..P105
-    private val at100to105 = 1.0..1.05
     private val at95to100 = 0.95..1.0
     private val at95 = 0.95..0.95
     private val at100 = 1.0..1.0
     private val at90to95 = 0.90..0.95
 
+    /** Short reps run above VMA: 200 m at 110–115 %, 300 m at 105–110 %. */
+    private val at110to115 = 1.10..1.15
+    private val at105to110 = 1.05..1.10
+
     val TenK = PlanTemplate(
         name = "10 km in 8 weeks",
         distanceM = 10_000,
         weeks = listOf(
-            TemplateWeek(build, vma(12, 200.0, at105, 100.0, RELAX), pace(5, 1_000.0, 2 * MIN), long(60)),
-            TemplateWeek(build, vma(12, 300.0, at100to105, 100.0), pace(3, 1_500.0, 150_000L), long(75)),
+            TemplateWeek(build, vma(12, 200.0, at110to115, 100.0, RELAX), pace(5, 1_000.0, 2 * MIN), long(60)),
+            TemplateWeek(build, vma(12, 300.0, at105to110, 100.0), pace(3, 1_500.0, 150_000L), long(75)),
             TemplateWeek(build, vma(10, 400.0, at95to100, 100.0), pace(3, 2_000.0, 150_000L), long(75)),
             TemplateWeek(light, hilly(45), pace(2, 3_000.0, 150_000L, RECOVER), long(60)),
-            TemplateWeek(build, sets(2, 8, 200.0, at105, 100.0, 150_000L), pace(6, 1_000.0, 90_000L), long(90, WATER)),
+            TemplateWeek(build, sets(2, 8, 200.0, at110to115, 100.0, 150_000L), pace(6, 1_000.0, 90_000L), long(90, WATER)),
             TemplateWeek(
                 build,
                 vma(8, 500.0, at95, 200.0, "Control your pace and do not start too fast."),
@@ -192,7 +194,7 @@ object PlanTemplates {
                 SessionSpec.RacePace(listOf(3_000.0, 2_000.0, 1_000.0), listOf(150_000L, 2 * MIN), EVEN),
                 long(60, "Easy and short. It should be a pleasure."),
             ),
-            TemplateWeek(raceWeek, vma(8, 200.0, at105, 100.0, SHARPEN), shakeout, race),
+            TemplateWeek(raceWeek, vma(8, 200.0, at110to115, 100.0, SHARPEN), shakeout, race),
         ),
     )
 
@@ -200,14 +202,14 @@ object PlanTemplates {
         name = "5 km in 8 weeks",
         distanceM = 5_000,
         weeks = listOf(
-            TemplateWeek(build, vma(10, 200.0, at105, 100.0, RELAX), pace(6, 400.0, 90_000L), long(45)),
-            TemplateWeek(build, vma(12, 200.0, at105, 100.0), pace(5, 600.0, 2 * MIN), long(50)),
-            TemplateWeek(build, vma(10, 300.0, at100to105, 100.0), pace(4, 800.0, 2 * MIN), long(55)),
+            TemplateWeek(build, vma(10, 200.0, at110to115, 100.0, RELAX), pace(6, 400.0, 90_000L), long(45)),
+            TemplateWeek(build, vma(12, 200.0, at110to115, 100.0), pace(5, 600.0, 2 * MIN), long(50)),
+            TemplateWeek(build, vma(10, 300.0, at105to110, 100.0), pace(4, 800.0, 2 * MIN), long(55)),
             TemplateWeek(light, hilly(40), pace(3, 1_000.0, 2 * MIN, RECOVER), long(45)),
-            TemplateWeek(build, sets(2, 8, 200.0, at105, 100.0, 150_000L), pace(5, 1_000.0, 2 * MIN), long(60)),
+            TemplateWeek(build, sets(2, 8, 200.0, at110to115, 100.0, 150_000L), pace(5, 1_000.0, 2 * MIN), long(60)),
             TemplateWeek(build, vma(8, 400.0, at100, 200.0), pace(3, 1_500.0, 150_000L), long(55)),
-            TemplateWeek(build, vma(6, 300.0, at105, 100.0), pace(2, 2_000.0, 150_000L), long(50)),
-            TemplateWeek(raceWeek, vma(6, 200.0, at105, 100.0, SHARPEN), shakeout, race),
+            TemplateWeek(build, vma(6, 300.0, at105to110, 100.0), pace(2, 2_000.0, 150_000L), long(50)),
+            TemplateWeek(raceWeek, vma(6, 200.0, at110to115, 100.0, SHARPEN), shakeout, race),
         ),
     )
 
@@ -215,7 +217,7 @@ object PlanTemplates {
         name = "Half marathon in 12 weeks",
         distanceM = 21_097,
         weeks = listOf(
-            TemplateWeek(build, vma(10, 300.0, at100, 100.0), pace(3, 2_000.0, 2 * MIN), long(60)),
+            TemplateWeek(build, vma(10, 300.0, at105to110, 100.0), pace(3, 2_000.0, 2 * MIN), long(60)),
             TemplateWeek(build, threshold(2, 10), pace(2, 3_000.0, 150_000L), long(70)),
             TemplateWeek(build, vma(8, 500.0, at95, 200.0), pace(3, 3_000.0, 150_000L), long(80)),
             TemplateWeek(light, hilly(45), pace(2, 3_000.0, 150_000L, RECOVER), long(60)),
@@ -225,8 +227,8 @@ object PlanTemplates {
             TemplateWeek(light, thirtyThirty(10), pace(2, 3_000.0, 150_000L, RECOVER), long(60)),
             TemplateWeek(build, kmReps(6), pace(3, 5_000.0, 3 * MIN), long(105, WATER)),
             TemplateWeek(build, threshold(3, 10), pace(2, 6_000.0, 3 * MIN), long(90, WATER)),
-            TemplateWeek(taper, vma(8, 300.0, at100, 100.0, SHARPEN), pace(2, 3_000.0, 150_000L), long(60)),
-            TemplateWeek(raceWeek, vma(6, 200.0, at105, 100.0, SHARPEN), shakeout, race),
+            TemplateWeek(taper, vma(8, 300.0, at105to110, 100.0, SHARPEN), pace(2, 3_000.0, 150_000L), long(60)),
+            TemplateWeek(raceWeek, vma(6, 200.0, at110to115, 100.0, SHARPEN), shakeout, race),
         ),
     )
 
@@ -234,7 +236,7 @@ object PlanTemplates {
         name = "Marathon in 16 weeks",
         distanceM = 42_195,
         weeks = listOf(
-            TemplateWeek(build, vma(10, 300.0, at100, 100.0), pace(3, 2_000.0, 2 * MIN), long(75)),
+            TemplateWeek(build, vma(10, 300.0, at105to110, 100.0), pace(3, 2_000.0, 2 * MIN), long(75)),
             TemplateWeek(build, threshold(2, 10), pace(2, 4_000.0, 3 * MIN), long(85)),
             TemplateWeek(build, vma(8, 500.0, at95, 200.0), pace(3, 3_000.0, 150_000L), long(95, WATER)),
             TemplateWeek(light, hilly(45), pace(2, 3_000.0, 150_000L, RECOVER), long(70)),
@@ -248,8 +250,8 @@ object PlanTemplates {
             TemplateWeek(light, hilly(45), pace(2, 5_000.0, 3 * MIN, RECOVER), long(90)),
             TemplateWeek(build, threshold(2, 15), pace(1, 15_000.0, 0L), long(140, WATER)),
             TemplateWeek(build, vma(6, 800.0, at95, 200.0), pace(2, 6_000.0, 3 * MIN), long(120, WATER)),
-            TemplateWeek(taper, vma(8, 300.0, at100, 100.0, SHARPEN), pace(2, 4_000.0, 3 * MIN), long(75)),
-            TemplateWeek(raceWeek, vma(6, 200.0, at105, 100.0, SHARPEN), shakeout, race),
+            TemplateWeek(taper, vma(8, 300.0, at105to110, 100.0, SHARPEN), pace(2, 4_000.0, 3 * MIN), long(75)),
+            TemplateWeek(raceWeek, vma(6, 200.0, at110to115, 100.0, SHARPEN), shakeout, race),
         ),
     )
 

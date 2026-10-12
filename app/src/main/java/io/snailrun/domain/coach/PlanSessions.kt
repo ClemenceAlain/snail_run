@@ -74,7 +74,7 @@ object PlanSessions {
             } else {
                 append(". No VMA yet, so run them by feel: fast, and as fast on the last as on the first. ")
             }
-            append("Short reps at or just above VMA are what raises it. The $recoveryText is short ")
+            append("Short reps around and above VMA are what raises it. The $recoveryText is short ")
             append("on purpose, so your heart rate stays high from one rep to the next.")
         }
         val fast = WorkoutStep(
