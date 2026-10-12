@@ -55,6 +55,5 @@
     </plurals>
     <string name="speech_left_side">left side</string>
     <string name="speech_right_side">right side</string>
-    <string name="speech_switch_sides">switch sides</string>
     <string name="speech_rest">rest</string>
 </resources>

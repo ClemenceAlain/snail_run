@@ -57,12 +57,14 @@ object Strength {
                 Exercise("Calf raises", sets = 3, reps = 15, perSide = true),
                 Exercise("Glute bridges", sets = 3, reps = 15),
                 Exercise("Plank", sets = 3, seconds = 45),
+                Exercise("Crunches", sets = 3, reps = 15),
+                Exercise("Leg raises", sets = 3, reps = 12),
             ),
         ),
         Routine(
             name = "Hips and feet",
-            // Every movement but one is done once a side, so this takes as long as the
-            // other routine despite the shorter holds.
+            // Most movements are done once a side, so this takes as long as the other
+            // routine despite the shorter holds.
             minutes = 20,
             reason = "The hip that drops and the foot that rolls are where most running " +
                 "injuries actually start. Neither shows up in a training log.",
@@ -72,6 +74,8 @@ object Strength {
                 Exercise("Side plank", sets = 3, seconds = 30, perSide = true),
                 Exercise("Step-ups", sets = 3, reps = 10, perSide = true),
                 Exercise("Heel walks", sets = 3, seconds = 30),
+                Exercise("Dead bugs", sets = 3, reps = 12),
+                Exercise("Hollow hold", sets = 3, seconds = 20),
             ),
         ),
     )

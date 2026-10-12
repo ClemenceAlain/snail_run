@@ -82,7 +82,6 @@ class ResourceSpeechVocabulary(context: Context) : SpeechVocabulary {
 
     override val leftSide: String get() = context.getString(R.string.speech_left_side)
     override val rightSide: String get() = context.getString(R.string.speech_right_side)
-    override val switchSides: String get() = context.getString(R.string.speech_switch_sides)
     override val restLabel: String get() = context.getString(R.string.speech_rest)
 
     override fun countdown(seconds: Int): String =

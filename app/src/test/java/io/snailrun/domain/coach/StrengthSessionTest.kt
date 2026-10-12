@@ -93,14 +93,10 @@ class StrengthSessionTest {
             listOf(WorkoutStep("Split squats", repeats = 1, countPerSet = 10, perSide = true)),
             "x",
         )
-        val unrolled = StrengthSession.stages(oneSided, switchSeconds = 5)
-        assertEquals(
-            listOf(StrengthStageKind.Work, StrengthStageKind.Switch, StrengthStageKind.Work),
-            unrolled.map { it.kind },
-        )
+        val unrolled = StrengthSession.stages(oneSided)
+        assertEquals(listOf(StrengthStageKind.Work, StrengthStageKind.Work), unrolled.map { it.kind })
         assertEquals(StrengthSide.Left to 10, unrolled[0].side to unrolled[0].reps)
-        assertEquals(5, unrolled[1].seconds)
-        assertEquals(StrengthSide.Right to 10, unrolled[2].side to unrolled[2].reps)
+        assertEquals(StrengthSide.Right to 10, unrolled[1].side to unrolled[1].reps)
     }
 
     /** "30 s each side" is thirty on the left and thirty on the right, each on its own clock. */
@@ -117,17 +113,15 @@ class StrengthSessionTest {
     }
 
     @Test
-    fun `a switch between sides ends itself`() {
+    fun `the right side starts as soon as the left is done`() {
         val oneSided = Workout(
             WorkoutType.Strength, 0.0,
             listOf(WorkoutStep("Split squats", repeats = 1, countPerSet = 10, perSide = true)),
             "x",
         )
-        val s = StrengthSession(StrengthSession.stages(oneSided, switchSeconds = 5))
+        val s = StrengthSession(StrengthSession.stages(oneSided))
         val cursor = s.advance(4_000L, s.evaluate(0, StrengthCursor()).third)
-        assertEquals(StrengthStageKind.Switch, s.progressOf(cursor, 4_000L).stage.kind)
-        val after = s.evaluate(9_100L, cursor).third
-        assertEquals(StrengthSide.Right, s.progressOf(after, 9_100L).stage.side)
+        assertEquals(StrengthSide.Right, s.progressOf(cursor, 4_000L).stage.side)
     }
 
     // ---- what ends on a clock and what does not ------------------------------------------
@@ -250,11 +244,10 @@ class StrengthSessionTest {
                     it.reps != null || it.seconds != null,
                 )
             }
-            // Every left side is followed, after its switch, by the right.
+            // Every left side is followed straight away by the right.
             stages.filter { it.side == StrengthSide.Left }.forEach {
-                assertEquals(StrengthStageKind.Switch, stages[it.index + 1].kind)
-                assertEquals(StrengthSide.Right, stages[it.index + 2].side)
-                assertEquals(it.exercise, stages[it.index + 2].exercise)
+                assertEquals(StrengthSide.Right, stages[it.index + 1].side)
+                assertEquals(it.exercise, stages[it.index + 1].exercise)
             }
         }
     }

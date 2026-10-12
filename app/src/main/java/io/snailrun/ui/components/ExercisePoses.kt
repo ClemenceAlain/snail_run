@@ -144,6 +144,70 @@ object ExercisePoses {
             )
             Move(plank, plank)
         },
+        "Crunches" to run {
+            // On the back, knees bent, hands behind the head: the shoulders curl up.
+            val lying = Pose(
+                head = p(0.13, 0.885), neck = p(0.22, 0.89), hip = p(0.52, 0.90),
+                nearElbow = p(0.22, 0.80), nearHand = p(0.12, 0.83),
+                farElbow = p(0.22, 0.80), farHand = p(0.12, 0.83),
+                nearKnee = p(0.67, 0.72), nearAnkle = p(0.77, 0.90), nearToe = p(0.84, 0.94),
+                farKnee = p(0.67, 0.72), farAnkle = p(0.77, 0.90), farToe = p(0.84, 0.94),
+            )
+            Move(
+                start = lying,
+                end = lying.copy(
+                    head = p(0.20, 0.70), neck = p(0.27, 0.76),
+                    nearElbow = p(0.33, 0.66), nearHand = p(0.19, 0.67),
+                    farElbow = p(0.33, 0.66), farHand = p(0.19, 0.67),
+                ),
+            )
+        },
+        "Leg raises" to run {
+            // Flat on the back, arms by the sides: straight legs up to vertical and down.
+            val flat = Pose(
+                head = p(0.08, 0.88), neck = p(0.16, 0.89), hip = p(0.46, 0.90),
+                nearElbow = p(0.30, 0.92), nearHand = p(0.44, 0.93),
+                farElbow = p(0.30, 0.92), farHand = p(0.44, 0.93),
+                nearKnee = p(0.66, 0.89), nearAnkle = p(0.86, 0.88), nearToe = p(0.89, 0.84),
+                farKnee = p(0.66, 0.89), farAnkle = p(0.86, 0.88), farToe = p(0.89, 0.84),
+            )
+            Move(
+                start = flat,
+                end = flat.copy(
+                    nearKnee = p(0.47, 0.70), nearAnkle = p(0.48, 0.50), nearToe = p(0.53, 0.48),
+                    farKnee = p(0.47, 0.70), farAnkle = p(0.48, 0.50), farToe = p(0.53, 0.48),
+                ),
+            )
+        },
+        "Dead bugs" to run {
+            // On the back, arms to the ceiling, knees over the hips. One arm reaches back
+            // as the opposite leg straightens; the reps alternate sides.
+            val tabletop = Pose(
+                head = p(0.11, 0.885), neck = p(0.20, 0.89), hip = p(0.50, 0.90),
+                nearElbow = p(0.21, 0.75), nearHand = p(0.22, 0.60),
+                farElbow = p(0.21, 0.75), farHand = p(0.22, 0.60),
+                nearKnee = p(0.53, 0.70), nearAnkle = p(0.72, 0.70), nearToe = p(0.76, 0.66),
+                farKnee = p(0.53, 0.70), farAnkle = p(0.72, 0.70), farToe = p(0.76, 0.66),
+            )
+            Move(
+                start = tabletop,
+                end = tabletop.copy(
+                    nearElbow = p(0.10, 0.80), nearHand = p(0.02, 0.72),
+                    farKnee = p(0.70, 0.82), farAnkle = p(0.89, 0.86), farToe = p(0.93, 0.82),
+                ),
+            )
+        },
+        "Hollow hold" to run {
+            // On the back, shoulders and straight legs off the floor, arms past the ears.
+            val hollow = Pose(
+                head = p(0.16, 0.75), neck = p(0.24, 0.80), hip = p(0.50, 0.90),
+                nearElbow = p(0.12, 0.72), nearHand = p(0.02, 0.64),
+                farElbow = p(0.12, 0.72), farHand = p(0.02, 0.64),
+                nearKnee = p(0.70, 0.84), nearAnkle = p(0.89, 0.78), nearToe = p(0.92, 0.73),
+                farKnee = p(0.70, 0.84), farAnkle = p(0.89, 0.78), farToe = p(0.92, 0.73),
+            )
+            Move(hollow, hollow)
+        },
         "Single-leg deadlifts" to Move(
             start = Standing.copy(
                 farKnee = p(0.48, 0.73), farAnkle = p(0.43, 0.90), farToe = p(0.48, 0.94),

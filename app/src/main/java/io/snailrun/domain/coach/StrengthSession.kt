@@ -1,13 +1,7 @@
 package io.snailrun.domain.coach
 
-/**
- * Doing the thing, recovering from it, or turning round to do it on the other side.
- *
- * [Switch] is its own kind rather than a short [Rest] because it is not recovery: it is
- * the five seconds it takes to get from a left-side plank onto the right, and calling it
- * rest would tell somebody to sit down when they should be rolling over.
- */
-enum class StrengthStageKind { Work, Rest, Switch }
+/** Doing the thing, or recovering from it. */
+enum class StrengthStageKind { Work, Rest }
 
 /** Which side a one-sided set is on. Null for a movement that uses both at once. */
 enum class StrengthSide { Left, Right }
@@ -35,7 +29,7 @@ data class StrengthStage(
     val kind: StrengthStageKind,
     /** Repetitions to count out, for a set that is not held. */
     val reps: Int? = null,
-    /** Seconds to hold, for a set that is. Rest and switch stages always have one. */
+    /** Seconds to hold, for a set that is. Rest stages always have one. */
     val seconds: Int? = null,
     /** The side this set is on, for a one-sided movement. Each side is its own stage. */
     val side: StrengthSide? = null,
@@ -110,21 +104,15 @@ class StrengthSession(val stages: List<StrengthStage>) {
          * Short, because the session is a circuit: the squats rest while the calves work,
          * so the pause only has to cover getting into the next position.
          */
-        const val MOVE_REST_SECONDS = 15
+        const val MOVE_REST_SECONDS = 5
 
         /**
          * Rest after a full round, before the circuit starts again.
          *
-         * A minute is the figure for bodyweight work done for endurance rather than for
-         * maximum strength: long enough to do the next round properly, short enough that a
-         * twenty-minute session stays twenty minutes. Neither rest is offered as a
-         * setting, because a runner who wants to argue about rest intervals is not the
-         * runner this feature is for.
+         * Kept short: bodyweight work done for endurance, and the circuit already rests
+         * each muscle while the others work. Neither rest is offered as a setting.
          */
-        const val ROUND_REST_SECONDS = 60
-
-        /** Time to change from the left side to the right. Not rest; see [StrengthStageKind]. */
-        const val SWITCH_SECONDS = 5
+        const val ROUND_REST_SECONDS = 20
 
         /**
          * Unrolls a strength [Workout] into the stages it is actually done in.
@@ -135,9 +123,9 @@ class StrengthSession(val stages: List<StrengthStage>) {
          * work it only tires one muscle and then leaves it idle for ten minutes. An
          * exercise with fewer sets than the others simply drops out of the later rounds.
          *
-         * A one-sided set becomes two stages, left then right, with a short switch
-         * between. "30 s each side" on a single 30 s clock reads as fifteen a side and
-         * gives the second side no timer at all.
+         * A one-sided set becomes two stages, left then right, back to back. "30 s each
+         * side" on a single 30 s clock reads as fifteen a side and gives the second side
+         * no timer at all.
          *
          * The trailing rest is dropped, exactly as [WorkoutSegments] drops the trailing
          * jog: a session that ends "…, plank, rest 60 s" asks somebody to sit on the
@@ -147,7 +135,6 @@ class StrengthSession(val stages: List<StrengthStage>) {
             workout: Workout,
             moveRestSeconds: Int = MOVE_REST_SECONDS,
             roundRestSeconds: Int = ROUND_REST_SECONDS,
-            switchSeconds: Int = SWITCH_SECONDS,
         ): List<StrengthStage> {
             val exercises = workout.steps
             if (exercises.isEmpty()) return emptyList()
@@ -174,14 +161,6 @@ class StrengthSession(val stages: List<StrengthStage>) {
                     )
                     if (step.perSide) {
                         add(work.copy(side = StrengthSide.Left))
-                        add(
-                            work.copy(
-                                exercise = "Switch sides",
-                                kind = StrengthStageKind.Switch,
-                                reps = null,
-                                seconds = switchSeconds,
-                            )
-                        )
                         add(work.copy(side = StrengthSide.Right))
                     } else {
                         add(work)

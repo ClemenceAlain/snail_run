@@ -34,7 +34,6 @@ private object EnglishVocabulary : SpeechVocabulary {
     override fun timesLabel(count: Int) = if (count == 1) "1 time" else "$count times"
     override val leftSide = "left side"
     override val rightSide = "right side"
-    override val switchSides = "switch sides"
     override val restLabel = "rest"
     override fun countdown(seconds: Int) = "$seconds"
     override val easeDown = "ease down"
@@ -206,11 +205,5 @@ class PaceSpeechFormatterTest {
             "side plank. right side. for 30 seconds.",
             formatter.format(StrengthCue.StageStart(work(1, StrengthSide.Right), null)),
         )
-    }
-
-    @Test
-    fun `a switch is said as a switch, not as rest`() {
-        val switch = work(3).copy(kind = StrengthStageKind.Switch, exercise = "Switch sides", seconds = 5)
-        assertEquals("switch sides.", formatter.format(StrengthCue.StageStart(switch, null)))
     }
 }

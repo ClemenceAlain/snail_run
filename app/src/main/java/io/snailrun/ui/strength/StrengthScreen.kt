@@ -63,7 +63,6 @@ fun StrengthScreen(
     val workout = state.workout ?: run { Box(modifier.fillMaxSize()); return }
     val progress = state.progress
 
-    // A switch between sides is coloured as a pause: nothing is being worked in it.
     val resting = progress != null && progress.stage.kind != StrengthStageKind.Work
     val background by animateColorAsState(
         targetValue = when {
@@ -140,13 +139,12 @@ private fun Stage(
                     "Round ${stage.round} of ${stage.roundCount} · " +
                         "exercise ${stage.exerciseIndex} of ${stage.exerciseCount}"
                 StrengthStageKind.Rest -> "Rest"
-                StrengthStageKind.Switch -> "Switch"
             },
             tone = if (rest) BadgeTone.Easy else BadgeTone.Hard,
         )
         Spacer(Modifier.height(Spacing.l))
 
-        // What the move looks like. During a rest or a switch it is the next move,
+        // What the move looks like. During a rest it is the next move,
         // standing still, so the runner can get into position before the clock lets them
         // go.
         val shown = if (rest) progress.next?.exercise else stage.exercise
@@ -283,7 +281,6 @@ private fun Controls(
 
 private fun describe(stage: StrengthStage): String {
     if (stage.kind == StrengthStageKind.Rest) return "rest ${stage.seconds} s"
-    if (stage.kind == StrengthStageKind.Switch) return "switch sides"
     val name = stage.exercise.lowercase() + (stage.side?.let { ", ${sideLabel(it).lowercase()}" } ?: "")
     return when {
         stage.seconds != null -> "$name, ${stage.seconds} s"

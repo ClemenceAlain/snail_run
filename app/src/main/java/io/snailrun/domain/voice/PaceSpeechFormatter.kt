@@ -31,7 +31,6 @@ interface SpeechVocabulary {
     fun timesLabel(count: Int): String         // "12 times"
     val leftSide: String                       // "left side"
     val rightSide: String                      // "right side"
-    val switchSides: String                    // "switch sides"
     val restLabel: String                      // "rest"
     fun countdown(seconds: Int): String        // "3"
     val easeDown: String                       // "ease down"
@@ -84,7 +83,6 @@ class PaceSpeechFormatter(private val vocabulary: SpeechVocabulary) {
     }
 
     private fun stageStart(stage: StrengthStage): String {
-        if (stage.kind == StrengthStageKind.Switch) return "${vocabulary.switchSides}."
         if (stage.kind == StrengthStageKind.Rest) {
             val rest = stage.seconds?.let {
                 "${vocabulary.restLabel} ${vocabulary.forLabel} ${duration(it * 1000L)}"
