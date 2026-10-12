@@ -33,13 +33,13 @@ object Partners {
     val VmaRange: ClosedFloatingPointRange<Double> = 8.0..26.0
 
     /**
-     * VDOT from VMA.
+     * VDOT from VMA, by the same conversion as the runner's own: [Vmas.vdotOf].
      *
-     * VMA is the speed at which a runner reaches VO2max, and VDOT is a VO2max, so the
-     * conversion is the oxygen cost of running at that speed — the same curve every pace
-     * in the app is read off. No second model, and no table copied from a club handout.
+     * Anything else and the two VDOTs are on different scales. Reading his VMA as the
+     * oxygen cost at that speed put her 100 % of VMA at 106 % of his, so 18.7 km/h came
+     * out at 3:02/km instead of 3:13.
      */
-    fun vdotOf(vmaKmh: Double): Double = Vdot.oxygenCost(vmaKmh * 1000.0 / 60.0)
+    fun vdotOf(vmaKmh: Double): Double = Vmas.vdotOf(vmaKmh) ?: 0.0
 }
 
 /**

@@ -16,11 +16,22 @@ class PartnerPlanTest {
     private val fast = Partners.vdotOf(18.0)
 
     @Test
-    fun `a VMA converts to the VDOT whose VO2max speed it is`() {
-        // VDOT 50 reaches VO2max at about 3:50 /km — 15.6 km/h.
-        val vdot = Partners.vdotOf(15.6)
-        assertEquals(50.0, vdot, 1.0)
-        assertEquals(60_000.0 / (15.6 * 1000 / 60), Vdot.paceSecPerKm(vdot, 1.0), 0.5)
+    fun `a partner VMA converts like the runner's own`() {
+        assertEquals(Vmas.vdotOf(15.6)!!, Partners.vdotOf(15.6), 1e-9)
+    }
+
+    @Test
+    fun `her percentage of VMA is his percentage of VMA`() {
+        val herVma = 15.0
+        val herVdot = Vmas.vdotOf(herVma)!!
+        val hisVma = 18.7
+        val hisVdot = Partners.vdotOf(hisVma)
+        for (fraction in listOf(0.8, 0.95, 1.0, 1.05)) {
+            val translated = PartnerPlan.translate(Vmas.paceSecPerKm(herVma, fraction), herVdot, hisVdot)
+            assertEquals(Vmas.paceSecPerKm(hisVma, fraction), translated, 1.0)
+        }
+        // 100 % of 18.7 km/h: 192.5 s, 3:13/km. The old conversion said 3:02.
+        assertEquals(192.5, PartnerPlan.translate(Vmas.paceSecPerKm(herVma, 1.0), herVdot, hisVdot), 0.5)
     }
 
     @Test
