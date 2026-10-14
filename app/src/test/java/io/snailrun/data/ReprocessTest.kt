@@ -146,4 +146,34 @@ class ReprocessTest {
             raw.zip(smoothed).any { (a, b) -> a.lat != b.lat || a.lon != b.lon },
         )
     }
+
+    /**
+     * A guided run recorded before step boundaries were stored finds them on its track
+     * as it was counted live. Reprocessing overwrites that count, so the boundaries are
+     * worked out from it first and kept.
+     */
+    @Test
+    fun `a guided run keeps the steps it was cued on through a reprocess`() = runTest {
+        val dao = db.runDao()
+        val id = legacyRun()
+        repository.attachWorkout(
+            id,
+            io.snailrun.domain.coach.WorkoutType.Intervals,
+            listOf(
+                io.snailrun.domain.coach.WorkoutSegment(0, "Warm up", io.snailrun.domain.coach.SegmentKind.WarmUp, targetM = 1_000.0),
+                io.snailrun.domain.coach.WorkoutSegment(1, "Hard", io.snailrun.domain.coach.SegmentKind.Work, targetMs = 120_000),
+            ),
+        )
+        dao.updateRun(dao.runById(id)!!.copy(smootherVersion = 0))
+        val live = repository.pointsFor(id)
+        val expected = io.snailrun.domain.coach.WorkoutReview.boundaries(
+            repository.workoutSegmentsFor(id), emptyList(), live,
+        )
+
+        repository.reprocessOutdatedRuns()
+
+        val run = dao.runById(id)!!
+        assertEquals(expected.joinToString(","), run.workoutBoundariesActiveMs)
+        assertTrue("nothing to keep: the test proves nothing", expected.isNotEmpty())
+    }
 }

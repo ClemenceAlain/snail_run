@@ -3,6 +3,7 @@ package io.snailrun.data.repo
 import io.snailrun.data.db.RunDao
 import io.snailrun.data.db.RunEntity
 import io.snailrun.domain.analysis.BestEffortFinder
+import io.snailrun.domain.coach.WorkoutReview
 import io.snailrun.domain.coach.WorkoutSegment
 import io.snailrun.domain.coach.WorkoutStart
 import io.snailrun.domain.coach.WorkoutType
@@ -223,10 +224,11 @@ class RunRepository(
      */
     suspend fun completeRun(runId: Long, metrics: RunMetrics, endedAtEpochMs: Long = clock.millis()) {
         val run = dao.runById(runId) ?: return
-        // Derived from the corrected track, like every figure the app shows. The live
-        // recorder ran the same filter over the same fixes in the same order, so the
-        // number that was on the screen is the number that gets stored.
+        // Derived from the corrected track, like every figure the app shows. The stored
+        // distance can differ from the last one on the record screen by a few percent:
+        // the stored track is smoothed both ways, the live one could only look back.
         val points = TrackSmoother.smooth(dao.pointsFor(runId).map { it.toDomain() })
+        val distance = if (points.size >= 2) points.last().cumulativeDistanceM else metrics.distanceMeters
 
         val splits = SplitCalculator.compute(points)
         val efforts = BestEffortFinder.findAll(points)
@@ -240,11 +242,11 @@ class RunRepository(
         dao.completeRun(
             run = run.copy(
                 endedAtEpochMs = endedAtEpochMs,
-                distanceMeters = metrics.distanceMeters,
+                distanceMeters = distance,
                 elapsedTimeMs = endedAtEpochMs - run.startedAtEpochMs,
                 movingTimeMs = movingTimeMs,
-                avgPaceSecPerKm = if (metrics.distanceMeters < 10.0) 0.0
-                    else movingTimeMs / 1000.0 / (metrics.distanceMeters / 1000.0),
+                avgPaceSecPerKm = if (distance < 10.0) 0.0
+                    else movingTimeMs / 1000.0 / (distance / 1000.0),
                 elevationGainM = elevation.gainM,
                 elevationLossM = elevation.lossM,
                 pointCount = points.size,
@@ -336,6 +338,11 @@ class RunRepository(
             return
         }
 
+        // A guided run recorded before its step boundaries were stored finds them on the
+        // track as it was counted live. That count is about to be overwritten, so they
+        // are worked out and kept now, while it still exists.
+        val boundaries = run.workoutBoundariesActiveMs ?: guidedBoundaries(run, raw)
+
         val smoothed = TrackSmoother.smooth(raw)
         val distance = smoothed.last().cumulativeDistanceM
         val movingTimeMs = TrackGaps.activeDurationOf(smoothed)
@@ -362,10 +369,20 @@ class RunRepository(
                 minLat = bounds.minLat, maxLat = bounds.maxLat,
                 minLon = bounds.minLon, maxLon = bounds.maxLon,
                 smootherVersion = TrackSmoother.VERSION,
+                workoutBoundariesActiveMs = boundaries,
             ),
             splits = SplitCalculator.compute(smoothed).map { it.toEntity(runId) },
             efforts = BestEffortFinder.findAll(smoothed).map { it.toEntity(runId) },
         )
+    }
+
+    private suspend fun guidedBoundaries(run: RunEntity, live: List<TrackPoint>): String? {
+        if (run.workoutType == null) return null
+        val segments = workoutSegmentsFor(run.id)
+        if (segments.isEmpty()) return null
+        val advances = run.workoutAdvancesActiveMs?.split(',')?.mapNotNull(String::toLongOrNull).orEmpty()
+        return WorkoutReview.boundaries(segments, advances, live, run.workoutStartActiveMs)
+            .joinToString(",")
     }
 
     suspend fun markExported(runId: Long, uri: String) {

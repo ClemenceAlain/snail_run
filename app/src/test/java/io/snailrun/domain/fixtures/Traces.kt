@@ -153,6 +153,49 @@ object Traces {
         }
     }
 
+    /**
+     * Laps of lane 2 of a standard 400 m track — 84.39 m straights, bends of 37.92 m
+     * radius, 407.67 m a lap — with white noise on every fix. The truth is exactly
+     * [seconds] * [speedMps] metres, run on bends half the time.
+     */
+    fun trackLaps(
+        seconds: Int,
+        speedMps: Double,
+        noiseM: Double,
+        seed: Long = 11L,
+    ): List<TrackPoint> {
+        val random = java.util.Random(seed)
+        val radius = 37.92
+        val straight = 84.39
+        val lap = 2 * straight + 2 * Math.PI * radius
+        return (0..seconds).map { i ->
+            val s = (i * speedMps) % lap
+            val (east, north) = when {
+                s < straight -> s to 0.0
+                s < straight + Math.PI * radius -> {
+                    val a = (s - straight) / radius
+                    (straight + radius * Math.sin(a)) to (radius - radius * Math.cos(a))
+                }
+                s < 2 * straight + Math.PI * radius -> (2 * straight + Math.PI * radius - s) to 2 * radius
+                else -> {
+                    val a = (s - 2 * straight - Math.PI * radius) / radius
+                    (-radius * Math.sin(a)) to (radius + radius * Math.cos(a))
+                }
+            }
+            TrackPoint(
+                seq = i,
+                segment = 0,
+                timestampMs = START_MS + i * 1000L,
+                lat = metresNorth(north + random.nextGaussian() * noiseM),
+                lon = START_LON + (east + random.nextGaussian() * noiseM) / M_PER_DEG_LON,
+                elevationM = 35.0,
+                accuracyM = noiseM.toFloat(),
+                speedMps = speedMps.toFloat(),
+                cumulativeDistanceM = 0.0,
+            )
+        }
+    }
+
     /** Metres of longitude per degree near Paris. */
     private const val M_PER_DEG_LON = 73_170.0
 

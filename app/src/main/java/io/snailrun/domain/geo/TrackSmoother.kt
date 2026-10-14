@@ -49,9 +49,9 @@ data class SmoothedFix(
  *    straight line between the last fix and the first new one is the only reconstruction
  *    the data supports, and [SmoothedFix.afterGap] marks it so a caller can say so.
  *
- * Stateful across a segment and pure: no clock, no Android, no randomness. [smooth]
- * folds a whole stored track through exactly the instance a live run uses, which is what
- * makes a past run and a running one agree to the metre.
+ * Stateful across a segment and pure: no clock, no Android, no randomness. A live run
+ * drives it one fix at a time; [smooth] re-derives a stored track with it and then runs
+ * back over the result, which a live run cannot do.
  */
 class TrackSmoother(private val config: Config = Config()) {
 
@@ -69,6 +69,11 @@ class TrackSmoother(private val config: Config = Config()) {
         val accelerationPsd: Double = 0.04,
         /** Used when a fix carries no accuracy at all. Pessimistic on purpose. */
         val defaultAccuracyM: Float = 15f,
+        /**
+         * The least uncertainty a fix is credited with, whatever the phone claims. Some
+         * phones report two metres while their positions wander by more than that.
+         */
+        val minAccuracyM: Float = 1f,
         /** Chi-square, two degrees of freedom, p = 0.999. Beyond this a fix is suspect. */
         val outlierGate: Double = 13.82,
         /** How much a suspect fix's variance is inflated instead of being dropped. */
@@ -89,10 +94,15 @@ class TrackSmoother(private val config: Config = Config()) {
 
     private val east = AxisFilter()
     private val north = AxisFilter()
+
+    private enum class Step { Start, Update }
     private var lastTimestampMs = 0L
     private var consecutiveOutliers = 0
     private var awaitingVelocity = false
     private var startVariance = 0.0
+
+    /** How the last fix was taken in. Read by [smooth] to know where a backward pass may run. */
+    private var lastStep = Step.Start
 
     fun reset() {
         started = false
@@ -106,7 +116,8 @@ class TrackSmoother(private val config: Config = Config()) {
         lon: Double,
         accuracyM: Float?,
     ): SmoothedFix {
-        val sigma = (accuracyM ?: config.defaultAccuracyM).toDouble().coerceAtLeast(1.0)
+        val sigma = (accuracyM ?: config.defaultAccuracyM).toDouble()
+            .coerceAtLeast(config.minAccuracyM.toDouble())
         val variance = sigma * sigma
 
         if (!started) return start(timestampMs, lat, lon, variance, sigma)
@@ -128,6 +139,7 @@ class TrackSmoother(private val config: Config = Config()) {
             val initNorth = (lat - originLat) * metresPerDegLat
             east.initialiseVelocity(initEast, dt, variance, startVariance)
             north.initialiseVelocity(initNorth, dt, variance, startVariance)
+            lastStep = Step.Start
             lastTimestampMs = timestampMs
             return SmoothedFix(
                 lat = originLat + north.position / metresPerDegLat,
@@ -164,6 +176,7 @@ class TrackSmoother(private val config: Config = Config()) {
         east.update(measuredEast, effectiveVariance)
         north.update(measuredNorth, effectiveVariance)
         lastTimestampMs = timestampMs
+        lastStep = Step.Update
 
         return SmoothedFix(
             lat = originLat + north.position / metresPerDegLat,
@@ -201,6 +214,7 @@ class TrackSmoother(private val config: Config = Config()) {
         startVariance = variance
         lastTimestampMs = timestampMs
         consecutiveOutliers = 0
+        lastStep = Step.Start
         return SmoothedFix(
             lat = lat,
             lon = lon,
@@ -219,8 +233,13 @@ class TrackSmoother(private val config: Config = Config()) {
         var position = 0.0
         var velocity = 0.0
         var positionVariance = 0.0
-        private var velocityVariance = 0.0
-        private var covariance = 0.0
+        var velocityVariance = 0.0
+        var covariance = 0.0
+
+        /** The state [predict] produced, before the fix was weighed in. */
+        val predicted = DoubleArray(5)
+
+        fun state() = doubleArrayOf(position, velocity, positionVariance, covariance, velocityVariance)
 
         fun start(measurement: Double, variance: Double) {
             position = measurement
@@ -258,6 +277,11 @@ class TrackSmoother(private val config: Config = Config()) {
                 accelerationPsd * dt3 / 3.0
             covariance += dt * velocityVariance + accelerationPsd * dt2 / 2.0
             velocityVariance += accelerationPsd * dt
+            predicted[0] = position
+            predicted[1] = velocity
+            predicted[2] = positionVariance
+            predicted[3] = covariance
+            predicted[4] = velocityVariance
         }
 
         fun update(measurement: Double, variance: Double) {
@@ -284,9 +308,10 @@ class TrackSmoother(private val config: Config = Config()) {
          *
          * Strictly it versions every figure derived from the stored track, not only this
          * filter's: 3 re-derives the climb, which a vertical-accuracy gate had held at
-         * 0 m on phones that report it poorly or not at all.
+         * 0 m on phones that report it poorly or not at all. 4 adds the backward pass in
+         * [smooth], which stops a track reading 12 % long.
          */
-        const val VERSION = 3
+        const val VERSION = 4
 
         /**
          * Smoothed positions never move far enough per fix to need a jitter floor, so
@@ -295,34 +320,58 @@ class TrackSmoother(private val config: Config = Config()) {
         private const val MIN_STEP_M = 0.05
 
         /**
+         * The settings a stored track is re-derived with.
+         *
+         * Looser than the live filter's, because the backward pass in [smooth] takes out
+         * the lag a responsive filter would otherwise leave on every bend. Swept against
+         * a synthetic lane-2 track with white noise (within 1.5 % at 3 and 5 m/s), the
+         * straight noisy fixture (exact), straight 300 m reps whose start and end are a
+         * known chord apart (within 2 m), and six minutes on a real 400 m track, which
+         * read 12 % long before and reads 5 % long now — the rest is in the positions
+         * that phone reported, which trace a bigger oval than the lane.
+         */
+        val STORED = Config(accelerationPsd = 0.3, minAccuracyM = 5f)
+
+        /**
          * Re-derives a stored track: corrected positions, and the cumulative distance
          * that follows from them.
          *
-         * Raw points are what the database keeps, so this runs on every read path. It is
-         * the same filter instance a live run drives, fed in the same order, which is why
-         * the figure on the record screen and the figure on the run's own screen agree.
+         * Raw points are what the database keeps, so this runs on every read path. A
+         * forward pass of the same filter the live run drives, then a backward pass over
+         * it (Rauch–Tung–Striebel) that lets each position be corrected by the fixes that
+         * came after it as well as before. A filter that can only look back overshoots
+         * the start of every bend and reads a track long; one that looks both ways does
+         * not. The figure on the run's own screen can therefore differ from the one on
+         * the record screen by a few percent — the stored one is the better of the two.
          */
-        fun smooth(points: List<TrackPoint>, config: Config = Config()): List<TrackPoint> {
+        fun smooth(points: List<TrackPoint>, config: Config = STORED): List<TrackPoint> {
             if (points.isEmpty()) return points
 
+            val n = points.size
             val smoother = TrackSmoother(config)
-            val out = ArrayList<TrackPoint>(points.size)
-            var distance = 0.0
-            var previous: SmoothedFix? = null
-            var segment = points.first().segment
+            val forward = arrayOfNulls<SmoothedFix>(n)
+            val updated = BooleanArray(n)
+            val eastState = arrayOfNulls<DoubleArray>(n)
+            val northState = arrayOfNulls<DoubleArray>(n)
+            val eastPredicted = arrayOfNulls<DoubleArray>(n)
+            val northPredicted = arrayOfNulls<DoubleArray>(n)
+            val metresPerDeg = arrayOfNulls<DoubleArray>(n)
+            /** Whether the step from the point before counts as distance. */
+            val linked = BooleanArray(n)
 
+            var segment = points.first().segment
+            var hasPrevious = false
             var previousPoint: TrackPoint? = null
 
-            for (point in points) {
+            for ((i, point) in points.withIndex()) {
                 // Each pause boundary is a fresh start: velocity carried across a pause
                 // would fabricate a step the runner never took.
                 if (point.segment != segment) {
                     smoother.reset()
-                    previous = null
+                    hasPrevious = false
                     segment = point.segment
                 } else previousPoint?.let { before ->
-                    // A hole in the fixes, judged by the same rules the live run used, so
-                    // a stored run and the screen that recorded it cannot disagree.
+                    // A hole in the fixes, judged by the same rules the live run used.
                     val gap = point.timestampMs - before.timestampMs
                     val straight = GeoDistance.between(before.lat, before.lon, point.lat, point.lon)
                     when (TrackGaps.classify(gap, straight)) {
@@ -334,28 +383,99 @@ class TrackSmoother(private val config: Config = Config()) {
                         // the drawn line.
                         GapKind.Broken -> {
                             smoother.reset()
-                            previous = null
+                            hasPrevious = false
                         }
                         GapKind.Continuous -> Unit
                     }
                 }
                 previousPoint = point
+                linked[i] = hasPrevious
 
-                val fix = smoother.onFix(point.timestampMs, point.lat, point.lon, point.accuracyM)
-                previous?.let {
-                    val step = GeoDistance.between(it.lat, it.lon, fix.lat, fix.lon)
+                forward[i] = smoother.onFix(point.timestampMs, point.lat, point.lon, point.accuracyM)
+                updated[i] = smoother.lastStep == Step.Update
+                eastState[i] = smoother.east.state()
+                northState[i] = smoother.north.state()
+                eastPredicted[i] = smoother.east.predicted.copyOf()
+                northPredicted[i] = smoother.north.predicted.copyOf()
+                metresPerDeg[i] = doubleArrayOf(smoother.metresPerDegLat, smoother.metresPerDegLon)
+                hasPrevious = true
+            }
+
+            // Backward pass. A fix taken in by an update was predicted from the one
+            // before it, so the correction can flow back across that link; a restart
+            // breaks the chain, and each stretch between restarts is smoothed on its own.
+            val eastShift = DoubleArray(n)
+            val northShift = DoubleArray(n)
+            val speed = DoubleArray(n) { forward[it]!!.speedMps }
+            var eastNext = eastState[n - 1]!!.copyOfRange(0, 2)
+            var northNext = northState[n - 1]!!.copyOfRange(0, 2)
+            for (i in n - 2 downTo 0) {
+                if (!updated[i + 1]) {
+                    eastNext = eastState[i]!!.copyOfRange(0, 2)
+                    northNext = northState[i]!!.copyOfRange(0, 2)
+                    continue
+                }
+                val dt = (points[i + 1].timestampMs - points[i].timestampMs) / 1000.0
+                eastNext = backward(eastState[i]!!, eastPredicted[i + 1]!!, eastNext, dt)
+                northNext = backward(northState[i]!!, northPredicted[i + 1]!!, northNext, dt)
+                eastShift[i] = eastNext[0] - eastState[i]!![0]
+                northShift[i] = northNext[0] - northState[i]!![0]
+                speed[i] = hypot(eastNext[1], northNext[1])
+            }
+
+            val out = ArrayList<TrackPoint>(n)
+            var distance = 0.0
+            var previousLat = 0.0
+            var previousLon = 0.0
+            for ((i, point) in points.withIndex()) {
+                val fix = forward[i]!!
+                val (perLat, perLon) = metresPerDeg[i]!!.let { it[0] to it[1] }
+                val lat = fix.lat + if (perLat > 0) northShift[i] / perLat else 0.0
+                val lon = fix.lon + if (perLon > 0) eastShift[i] / perLon else 0.0
+                if (linked[i]) {
+                    val step = GeoDistance.between(previousLat, previousLon, lat, lon)
                     if (step >= MIN_STEP_M) distance += step
                 }
-                previous = fix
-
+                previousLat = lat
+                previousLon = lon
                 out += point.copy(
-                    lat = fix.lat,
-                    lon = fix.lon,
-                    speedMps = fix.speedMps.toFloat(),
+                    lat = lat,
+                    lon = lon,
+                    speedMps = speed[i].toFloat(),
                     cumulativeDistanceM = distance,
                 )
             }
             return out
+        }
+
+        /**
+         * One step of the backward pass on one axis: the filtered state at a fix, moved
+         * by how far the smoothed state at the next fix sits from what was predicted for
+         * it. States are position, velocity, position variance, covariance, velocity
+         * variance; [next] is the smoothed position and velocity.
+         */
+        private fun backward(filtered: DoubleArray, predicted: DoubleArray, next: DoubleArray, dt: Double): DoubleArray {
+            val (p00, p01, p11) = Triple(filtered[2], filtered[3], filtered[4])
+            // P F^T, with F the constant-velocity transition.
+            val a00 = p00 + dt * p01
+            val a01 = p01
+            val a10 = p01 + dt * p11
+            val a11 = p11
+            val q00 = predicted[2]
+            val q01 = predicted[3]
+            val q11 = predicted[4]
+            val det = q00 * q11 - q01 * q01
+            if (det <= 1e-12) return filtered.copyOfRange(0, 2)
+            val i00 = q11 / det
+            val i01 = -q01 / det
+            val i11 = q00 / det
+            val c00 = a00 * i00 + a01 * i01
+            val c01 = a00 * i01 + a01 * i11
+            val c10 = a10 * i00 + a11 * i01
+            val c11 = a10 * i01 + a11 * i11
+            val d0 = next[0] - predicted[0]
+            val d1 = next[1] - predicted[1]
+            return doubleArrayOf(filtered[0] + c00 * d0 + c01 * d1, filtered[1] + c10 * d0 + c11 * d1)
         }
     }
 }

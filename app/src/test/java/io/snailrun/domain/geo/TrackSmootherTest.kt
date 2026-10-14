@@ -38,6 +38,23 @@ class TrackSmootherTest {
         )
     }
 
+    /**
+     * A filter that can only look back overshoots the start of every bend: on six
+     * minutes of a track at a hard pace it read 16 % long. Run back over in both
+     * directions, it holds the lane.
+     */
+    @Test
+    fun `holds a running track to its lane, bends and all`() {
+        listOf(5.0 to 360, 3.0 to 600).forEach { (speed, seconds) ->
+            val truth = speed * seconds
+            val smoothed = smoothedDistance(Traces.trackLaps(seconds, speed, noiseM = 3.0))
+            assertTrue(
+                "at $speed m/s: $smoothed m against $truth m",
+                abs(smoothed - truth) / truth < 0.025,
+            )
+        }
+    }
+
     @Test
     fun `holds a straight noiseless track to the metre`() {
         val points = Traces.straightTrack(seconds = 600, speedMps = 3.0)
