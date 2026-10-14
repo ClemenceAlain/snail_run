@@ -89,6 +89,9 @@ class ResourceSpeechVocabulary(context: Context) : SpeechVocabulary {
 
     override val easeDown: String get() = context.getString(R.string.speech_ease_down)
     override val pickItUp: String get() = context.getString(R.string.speech_pick_it_up)
+    override val onPace: String get() = context.getString(R.string.speech_on_pace)
+    override val tooSlow: String get() = context.getString(R.string.speech_too_slow)
+    override val tooFast: String get() = context.getString(R.string.speech_too_fast)
     override val sessionComplete: String
         get() = context.getString(R.string.speech_session_complete)
     override val forLabel: String get() = context.getString(R.string.speech_for)

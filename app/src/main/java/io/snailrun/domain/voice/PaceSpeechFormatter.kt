@@ -1,5 +1,7 @@
 package io.snailrun.domain.voice
 
+import io.snailrun.domain.coach.PaceVerdict
+import io.snailrun.domain.coach.RepResult
 import io.snailrun.domain.coach.StrengthCue
 import io.snailrun.domain.coach.StrengthSide
 import io.snailrun.domain.coach.StrengthStage
@@ -35,6 +37,9 @@ interface SpeechVocabulary {
     fun countdown(seconds: Int): String        // "3"
     val easeDown: String                       // "ease down"
     val pickItUp: String                       // "pick it up"
+    val onPace: String                         // "on pace"
+    val tooSlow: String                        // "too slow"
+    val tooFast: String                        // "faster than asked"
     val sessionComplete: String                // "session done"
     val forLabel: String                       // "for"
     val betweenLabel: String                   // "between"
@@ -64,8 +69,24 @@ class PaceSpeechFormatter(private val vocabulary: SpeechVocabulary) {
         is WorkoutCue.Countdown -> vocabulary.countdown(cue.seconds)
         is WorkoutCue.OffPace ->
             if (cue.tooFast) vocabulary.easeDown else vocabulary.pickItUp
-        WorkoutCue.Finished -> "${vocabulary.sessionComplete}."
-        is WorkoutCue.StepStart -> stepStart(cue.segment)
+        is WorkoutCue.Finished -> result(cue.previous) + "${vocabulary.sessionComplete}."
+        is WorkoutCue.StepStart -> result(cue.previous) + stepStart(cue.segment, cue.repeat)
+    }
+
+    /**
+     * How the rep just finished went: the pace it was run at, then the verdict. Said
+     * after the rep rather than during it, because a 200 m rep is over before a nudge
+     * could be acted on, and the number is exact once the rep is done.
+     */
+    private fun result(previous: RepResult?): String {
+        previous ?: return ""
+        val verdict = when (previous.verdict) {
+            PaceVerdict.OnTarget -> vocabulary.onPace
+            PaceVerdict.Worse -> vocabulary.tooSlow
+            PaceVerdict.Better -> vocabulary.tooFast
+        }
+        return "${pace(previous.paceSecPerKm)}${vocabulary.sentenceSeparator}$verdict" +
+            vocabulary.sentenceSeparator
     }
 
     /**
@@ -106,7 +127,11 @@ class PaceSpeechFormatter(private val vocabulary: SpeechVocabulary) {
         return parts.joinToString(vocabulary.sentenceSeparator) + "."
     }
 
-    private fun stepStart(segment: WorkoutSegment): String {
+    /**
+     * [repeat] drops the target and the pace band: the runner heard them on the first
+     * one, and the fifth "fast" only needs to say which rep it is.
+     */
+    private fun stepStart(segment: WorkoutSegment, repeat: Boolean): String {
         val parts = mutableListOf<String>()
 
         parts += if (segment.isRep) {
@@ -115,6 +140,8 @@ class PaceSpeechFormatter(private val vocabulary: SpeechVocabulary) {
         } else {
             segment.label.lowercase()
         }
+
+        if (repeat) return parts.joinToString(vocabulary.sentenceSeparator) + "."
 
         segment.targetMs?.let { parts += "${vocabulary.forLabel} ${duration(it)}" }
         segment.targetM?.let { parts += "${vocabulary.forLabel} ${vocabulary.kilometres(it / 1000.0)}" }

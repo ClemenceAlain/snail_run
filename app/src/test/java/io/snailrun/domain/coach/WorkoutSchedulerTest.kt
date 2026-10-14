@@ -44,6 +44,32 @@ class WorkoutSchedulerTest {
 
     private fun starts(cues: List<WorkoutCue>) = cues.filterIsInstance<WorkoutCue.StepStart>()
 
+    // ---- what is said -----------------------------------------------------------------
+
+    @Test
+    fun `a step already heard is marked as a repeat`() {
+        val (cues, _) = run(seconds = 250 + 120 + 60)
+        assertEquals(listOf(false, false, false, true), starts(cues).map { it.repeat })
+    }
+
+    @Test
+    fun `the cue after a paced rep says how it went`() {
+        // 4 m/s is 250 s/km: slower than the 234 asked for.
+        val (cues, _) = run(seconds = 250 + 120)
+        val jog = starts(cues).last()
+        assertEquals("Jog", jog.segment.label)
+        assertEquals(PaceVerdict.Worse, jog.previous?.verdict)
+        assertEquals(250.0, jog.previous!!.paceSecPerKm, 0.5)
+        // Nothing to judge after the warm-up: it is not work.
+        assertNull(starts(cues)[1].previous)
+    }
+
+    @Test
+    fun `a rep run on pace is said to be`() {
+        val (cues, _) = run(seconds = 250 + 120, metresPerSecond = 1000.0 / 234.0)
+        assertEquals(PaceVerdict.OnTarget, starts(cues).last().previous?.verdict)
+    }
+
     // ---- boundaries -------------------------------------------------------------------
 
     @Test
@@ -149,7 +175,7 @@ class WorkoutSchedulerTest {
     @Test
     fun `nothing is said after the session is over`() {
         val s = scheduler()
-        val cursor = WorkoutCursor(segmentIndex = 4, complete = true, announcedIndex = -2)
+        val cursor = WorkoutCursor(segmentIndex = 4, complete = true, announcedIndex = -2, opened = true)
         val (progress, cues, next) = s.evaluate(999_000L, 5_000.0, 240.0, cursor)
         assertTrue(cues.isEmpty())
         assertTrue(progress.complete)
@@ -178,6 +204,7 @@ class WorkoutSchedulerTest {
         val cursor = WorkoutCursor(
             segmentIndex = 1,
             announcedIndex = 1,
+            opened = true,
             segmentStartedActiveMs = 0,
         )
         val (_, first, c1) = s.evaluate(118_000L, 500.0, null, cursor)

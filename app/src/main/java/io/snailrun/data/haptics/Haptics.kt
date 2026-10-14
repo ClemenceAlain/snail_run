@@ -51,7 +51,7 @@ interface Haptics {
  */
 fun WorkoutCue.buzz(): Buzz? = when (this) {
     is WorkoutCue.StepStart -> if (segment.kind == SegmentKind.Work) Buzz.Work else Buzz.Ease
-    WorkoutCue.Finished -> Buzz.Done
+    is WorkoutCue.Finished -> Buzz.Done
     is WorkoutCue.Countdown, is WorkoutCue.OffPace -> null
 }
 

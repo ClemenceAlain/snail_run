@@ -1,6 +1,8 @@
 package io.snailrun.domain.voice
 
 import org.junit.Assert.assertEquals
+import io.snailrun.domain.coach.PaceVerdict
+import io.snailrun.domain.coach.RepResult
 import io.snailrun.domain.coach.SegmentKind
 import io.snailrun.domain.coach.StrengthCue
 import io.snailrun.domain.coach.StrengthSide
@@ -38,6 +40,9 @@ private object EnglishVocabulary : SpeechVocabulary {
     override fun countdown(seconds: Int) = "$seconds"
     override val easeDown = "ease down"
     override val pickItUp = "pick it up"
+    override val onPace = "on pace"
+    override val tooSlow = "too slow"
+    override val tooFast = "faster than asked"
     override val sessionComplete = "session done"
     override val forLabel = "for"
     override val betweenLabel = "between"
@@ -156,7 +161,30 @@ class PaceSpeechFormatterTest {
         assertEquals("3", formatter.format(WorkoutCue.Countdown(3)))
         assertEquals("ease down", formatter.format(WorkoutCue.OffPace(tooFast = true)))
         assertEquals("pick it up", formatter.format(WorkoutCue.OffPace(tooFast = false)))
-        assertEquals("session done.", formatter.format(WorkoutCue.Finished))
+        assertEquals("session done.", formatter.format(WorkoutCue.Finished()))
+    }
+
+    @Test
+    fun `a repeated rep only says which rep it is`() {
+        assertEquals(
+            "rep 3 of 5. hard.",
+            formatter.format(WorkoutCue.StepStart(rep, next = null, repeat = true)),
+        )
+    }
+
+    @Test
+    fun `the rep just run is judged before the next step is named`() {
+        val jog = WorkoutSegment(2, "Jog", SegmentKind.Recover, targetMs = 60_000)
+        assertEquals(
+            "4 minutes 1 second per kilometre. too slow. jog.",
+            formatter.format(
+                WorkoutCue.StepStart(jog, next = rep, repeat = true, previous = RepResult(241.0, PaceVerdict.Worse)),
+            ),
+        )
+        assertEquals(
+            "3 minutes 54 seconds per kilometre. on pace. session done.",
+            formatter.format(WorkoutCue.Finished(RepResult(234.0, PaceVerdict.OnTarget))),
+        )
     }
 
     /**
@@ -173,7 +201,9 @@ class PaceSpeechFormatterTest {
             ),
             WorkoutCue.Countdown(1),
             WorkoutCue.OffPace(tooFast = false),
-            WorkoutCue.Finished,
+            WorkoutCue.Finished(),
+            WorkoutCue.Finished(RepResult(241.0, PaceVerdict.Worse)),
+            WorkoutCue.StepStart(rep, next = null, repeat = true, previous = RepResult(230.0, PaceVerdict.Better)),
         )
         cues.forEach { cue ->
             val spoken = formatter.format(cue)

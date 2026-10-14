@@ -27,11 +27,27 @@ data class WorkoutProgress(
  * should have started it.
  */
 sealed interface WorkoutCue {
-    data class StepStart(val segment: WorkoutSegment, val next: WorkoutSegment?) : WorkoutCue
+    /**
+     * [repeat] is true when an earlier segment of the session asked for exactly the same
+     * thing. The tenth "fast" of a set does not need its pace read out again.
+     *
+     * [previous] is how the paced work segment just ended went. Carried on the cue that
+     * follows it rather than said on its own: the speech engine speaks one utterance at a
+     * time and the newest wins, so two cues on one fix would lose the first.
+     */
+    data class StepStart(
+        val segment: WorkoutSegment,
+        val next: WorkoutSegment?,
+        val repeat: Boolean = false,
+        val previous: RepResult? = null,
+    ) : WorkoutCue
     data class Countdown(val seconds: Int) : WorkoutCue
     data class OffPace(val tooFast: Boolean) : WorkoutCue
-    data object Finished : WorkoutCue
+    data class Finished(val previous: RepResult? = null) : WorkoutCue
 }
+
+/** The pace a paced work segment was run at, and whether it was the pace asked for. */
+data class RepResult(val paceSecPerKm: Double, val verdict: PaceVerdict)
 
 /**
  * Bookkeeping, passed in and returned rather than held.
@@ -51,6 +67,14 @@ data class WorkoutCursor(
     val offPaceSinceActiveMs: Long? = null,
     val lastNudgeActiveMs: Long = -1,
     val complete: Boolean = false,
+    /** How the last paced work segment went, until a cue has said so. */
+    val ended: RepResult? = null,
+    /**
+     * Whether the first segment's start has been set. Separate from [announcedIndex] so a
+     * session loaded mid-run can be announced without losing the running already
+     * credited to its warm-up.
+     */
+    val opened: Boolean = false,
 )
 
 data class WorkoutCueConfig(
@@ -100,8 +124,12 @@ class WorkoutScheduler(
         val cues = mutableListOf<WorkoutCue>()
         var state = cursor
 
-        if (state.announcedIndex < 0) {
-            state = state.copy(segmentStartedActiveMs = activeMs, segmentStartedMeters = meters)
+        if (!state.opened) {
+            state = state.copy(
+                segmentStartedActiveMs = activeMs,
+                segmentStartedMeters = meters,
+                opened = true,
+            )
         }
 
         // A loop rather than an `if`: one long gap in the fixes can carry the runner past
@@ -117,15 +145,17 @@ class WorkoutScheduler(
         // anyway, so only the last of them would be heard.
         if (state.complete) {
             if (cursor.announcedIndex != COMPLETE) {
-                cues += WorkoutCue.Finished
-                state = state.copy(announcedIndex = COMPLETE)
+                cues += WorkoutCue.Finished(previous = state.ended)
+                state = state.copy(announcedIndex = COMPLETE, ended = null)
             }
         } else if (state.announcedIndex != state.segmentIndex) {
             cues += WorkoutCue.StepStart(
-                segments[state.segmentIndex],
-                segments.getOrNull(state.segmentIndex + 1),
+                segment = segments[state.segmentIndex],
+                next = segments.getOrNull(state.segmentIndex + 1),
+                repeat = isRepeat(state.segmentIndex),
+                previous = state.ended,
             )
-            state = state.copy(announcedIndex = state.segmentIndex)
+            state = state.copy(announcedIndex = state.segmentIndex, ended = null)
         }
 
         if (!state.complete) {
@@ -199,14 +229,38 @@ class WorkoutScheduler(
             else -> 1.0
         }.coerceIn(0.0, 1.0)
 
+        val ranMs = (elapsed * fraction).toLong()
+        val ranM = covered * fraction
         return cursor.copy(
+            ended = resultOf(segment, ranMs, ranM),
             segmentIndex = next.coerceAtMost(segments.lastIndex),
-            segmentStartedActiveMs = cursor.segmentStartedActiveMs + (elapsed * fraction).toLong(),
-            segmentStartedMeters = cursor.segmentStartedMeters + covered * fraction,
+            segmentStartedActiveMs = cursor.segmentStartedActiveMs + ranMs,
+            segmentStartedMeters = cursor.segmentStartedMeters + ranM,
             countdownSpoken = 0,
             offPaceSinceActiveMs = null,
             complete = next > segments.lastIndex,
         )
+    }
+
+    /**
+     * A verdict only for paced work. A jog or a warm-up run off its band is not something
+     * the runner needs to hear about afterwards.
+     */
+    private fun resultOf(segment: WorkoutSegment, ranMs: Long, ranM: Double): RepResult? {
+        if (segment.kind != SegmentKind.Work || segment.paceSecPerKm == null) return null
+        val result = SegmentResult(segment, actualMs = ranMs, actualMeters = ranM)
+        val pace = result.actualPaceSecPerKm ?: return null
+        val verdict = result.verdict ?: return null
+        return RepResult(pace, verdict)
+    }
+
+    private fun isRepeat(index: Int): Boolean {
+        val segment = segments[index]
+        return segments.take(index).any {
+            it.label == segment.label && it.kind == segment.kind &&
+                it.targetMs == segment.targetMs && it.targetM == segment.targetM &&
+                it.paceSecPerKm == segment.paceSecPerKm
+        }
     }
 
     private fun isOver(

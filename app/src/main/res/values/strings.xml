@@ -41,6 +41,9 @@
     <string name="speech_countdown">%1$d</string>
     <string name="speech_ease_down">ease down</string>
     <string name="speech_pick_it_up">pick it up</string>
+    <string name="speech_on_pace">on pace</string>
+    <string name="speech_too_slow">too slow</string>
+    <string name="speech_too_fast">faster than asked</string>
     <string name="speech_session_complete">session done</string>
     <string name="speech_for">for</string>
     <string name="speech_between">between</string>
