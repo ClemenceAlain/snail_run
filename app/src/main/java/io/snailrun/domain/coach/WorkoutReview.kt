@@ -1,6 +1,5 @@
 package io.snailrun.domain.coach
 
-import io.snailrun.domain.metrics.TrackGaps
 import io.snailrun.domain.model.TrackPoint
 
 /** How a segment's pace went against what it asked for, from the runner's side. */
@@ -61,46 +60,45 @@ data class SegmentResult(
  */
 object WorkoutReview {
 
+    /**
+     * [startActiveMs] is where in the run the session was loaded. The track before it is
+     * the runner's own running and is not judged against anything.
+     */
     fun of(
         segments: List<WorkoutSegment>,
         advancesActiveMs: List<Long>,
         points: List<TrackPoint>,
+        startActiveMs: Long = 0,
     ): List<SegmentResult> {
         if (segments.isEmpty() || points.size < 2) return emptyList()
 
         val scheduler = WorkoutScheduler(segments)
         val marks = advancesActiveMs.sorted()
         val results = mutableListOf<SegmentResult>()
+        // The same gate the accumulator uses: within a segment of the track, and across a
+        // hole in the fixes only where the runner ran through it.
+        val timeline = WorkoutStart.timeline(points)
+        val startMeters = WorkoutStart.metersAt(points, startActiveMs)
 
         var cursor = WorkoutCursor()
         var applied = 0
         var activeMs = 0L
-        var previous: TrackPoint? = null
+        var meters = 0.0
 
-        points.forEach { point ->
-            previous?.let { before ->
-                val delta = point.timestampMs - before.timestampMs
-                // The same gate the accumulator uses: within a segment of the track,
-                // and across a hole in the fixes only where the runner ran through it.
-                if (point.segment == before.segment) {
-                    activeMs += TrackGaps.countable(
-                        gapMs = delta,
-                        straightLineM = point.cumulativeDistanceM - before.cumulativeDistanceM,
-                    )
-                }
-            }
-            previous = point
-            val meters = point.cumulativeDistanceM
+        points.forEachIndexed { i, point ->
+            if (timeline[i] < startActiveMs) return@forEachIndexed
+            activeMs = timeline[i] - startActiveMs
+            meters = point.cumulativeDistanceM - startMeters
 
             // A segment the runner ended by hand ends here; one that ran its course ends
             // where the scheduler says, which is somewhere between this fix and the last.
             while (applied < marks.size && marks[applied] <= activeMs && !cursor.complete) {
-                cursor = record(results, scheduler, cursor, scheduler.advance(activeMs, meters, cursor))
+                cursor = record(results, scheduler, cursor, scheduler.advance(activeMs, meters, cursor), startMeters)
                 applied++
             }
             while (true) {
                 val next = scheduler.advanceNaturally(activeMs, meters, cursor) ?: break
-                cursor = record(results, scheduler, cursor, next)
+                cursor = record(results, scheduler, cursor, next, startMeters)
             }
         }
 
@@ -109,9 +107,8 @@ object WorkoutReview {
             results += SegmentResult(
                 segment = segments[cursor.segmentIndex],
                 actualMs = (activeMs - cursor.segmentStartedActiveMs).coerceAtLeast(0),
-                actualMeters = (points.last().cumulativeDistanceM - cursor.segmentStartedMeters)
-                    .coerceAtLeast(0.0),
-                startedAtMeters = cursor.segmentStartedMeters,
+                actualMeters = (meters - cursor.segmentStartedMeters).coerceAtLeast(0.0),
+                startedAtMeters = startMeters + cursor.segmentStartedMeters,
             )
         }
         return results
@@ -129,6 +126,7 @@ object WorkoutReview {
         scheduler: WorkoutScheduler,
         before: WorkoutCursor,
         after: WorkoutCursor,
+        startMeters: Double,
     ): WorkoutCursor {
         into += SegmentResult(
             segment = scheduler.segments[before.segmentIndex],
@@ -136,7 +134,7 @@ object WorkoutReview {
                 .coerceAtLeast(0),
             actualMeters = (after.segmentStartedMeters - before.segmentStartedMeters)
                 .coerceAtLeast(0.0),
-            startedAtMeters = before.segmentStartedMeters,
+            startedAtMeters = startMeters + before.segmentStartedMeters,
         )
         return after
     }

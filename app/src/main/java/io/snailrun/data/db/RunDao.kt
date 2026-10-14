@@ -94,6 +94,62 @@ interface RunDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertWorkoutSegments(segments: List<WorkoutSegmentEntity>)
 
+    @Query("DELETE FROM workout_segments WHERE runId = :runId")
+    suspend fun deleteWorkoutSegments(runId: Long)
+
+    /** Swaps the session a run is guided through for another, or for the first one. */
+    @Transaction
+    suspend fun replaceWorkout(run: RunEntity, segments: List<WorkoutSegmentEntity>) {
+        deleteWorkoutSegments(run.id)
+        updateRun(run)
+        insertWorkoutSegments(segments)
+    }
+
+    /**
+     * The finished run a new one could be the continuation of: the latest one from the
+     * same source that ended at or before [startedAtEpochMs], and not long before.
+     */
+    @Query(
+        """
+        SELECT * FROM runs
+        WHERE status = 'COMPLETE' AND id != :excludeId AND source = :source
+          AND endedAtEpochMs IS NOT NULL
+          AND endedAtEpochMs <= :startedAtEpochMs
+          AND endedAtEpochMs >= :startedAtEpochMs - :maxGapMs
+        ORDER BY endedAtEpochMs DESC
+        LIMIT 1
+        """
+    )
+    suspend fun runEndedJustBefore(
+        excludeId: Long,
+        source: String,
+        startedAtEpochMs: Long,
+        maxGapMs: Long,
+    ): RunEntity?
+
+    /**
+     * Folds [from] into [into]: its points, renumbered to follow on, and its session if
+     * it had one. One transaction, so a crash leaves either two runs or one, never a run
+     * with half of another inside it. The figures are re-derived afterwards; [into] is
+     * written with a stale filter version so a crash before that still gets them fixed
+     * on next launch.
+     */
+    @Transaction
+    suspend fun mergeRuns(
+        into: RunEntity,
+        points: List<TrackPointEntity>,
+        segments: List<WorkoutSegmentEntity>?,
+        fromId: Long,
+    ) {
+        insertPoints(points)
+        if (segments != null) {
+            deleteWorkoutSegments(into.id)
+            insertWorkoutSegments(segments)
+        }
+        updateRun(into)
+        deleteRun(fromId)
+    }
+
     @Query("SELECT * FROM workout_segments WHERE runId = :runId ORDER BY segmentIndex")
     suspend fun workoutSegmentsFor(runId: Long): List<WorkoutSegmentEntity>
 

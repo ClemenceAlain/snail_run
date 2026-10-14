@@ -545,4 +545,117 @@ class RunRecorderTest {
         assertEquals("COMPLETE", run.status)
         assertTrue("recovered distance was ${run.distanceMeters}", run.distanceMeters >= 1795.0)
     }
+
+    // ---- stopping, restarting, loading mid-run ----------------------------------------
+
+    private suspend fun feed(target: RunRecorder, seconds: Int, startMs: Long) {
+        Traces.steadyRun(seconds = seconds, speedMps = 3.0, startMs = startMs).forEach { fix ->
+            clock.nowMs = fix.epochMs
+            target.onFix(fix)
+        }
+    }
+
+    @Test
+    fun `a run that went nowhere is deleted, not saved`() = runTest {
+        val id = recorder.start()
+        (0..30).forEach { i ->
+            val fix = Traces.fix(0.0, Traces.START_MS + i * 1000L)
+            clock.nowMs = fix.epochMs
+            recorder.onFix(fix)
+        }
+
+        assertNull(recorder.finish())
+        assertNull(repository.observeRun(id).first())
+        assertEquals(RecordingState.Idle, recorder.state.value)
+    }
+
+    @Test
+    fun `a run started soon after the last one is folded into it`() = runTest {
+        val first = recorder.start()
+        feed(recorder, seconds = 300, startMs = Traces.START_MS)
+        assertEquals(first, recorder.finish())
+
+        // Five minutes standing about, then off again.
+        val restartMs = Traces.START_MS + 600_000
+        clock.nowMs = restartMs
+        recorder.start()
+        feed(recorder, seconds = 300, startMs = restartMs)
+        assertEquals(first, recorder.finish())
+
+        val runs = repository.observeHistory().first()
+        assertEquals(1, runs.size)
+        val run = runs.single()
+        assertEquals(1800.0, run.distanceMeters, 1800.0 * 0.02)
+        // The stop between them is not running.
+        assertEquals(600_000L, run.movingTimeMs)
+        assertEquals(restartMs + 300_000 - Traces.START_MS, run.elapsedTimeMs)
+    }
+
+    @Test
+    fun `a run started long after the last one stays its own`() = runTest {
+        recorder.start()
+        feed(recorder, seconds = 300, startMs = Traces.START_MS)
+        recorder.finish()
+
+        val restartMs = Traces.START_MS + 300_000 + 11 * 60_000
+        clock.nowMs = restartMs
+        recorder.start()
+        feed(recorder, seconds = 300, startMs = restartMs)
+        recorder.finish()
+
+        assertEquals(2, repository.observeHistory().first().size)
+    }
+
+    @Test
+    fun `a session loaded mid-run counts the running so far towards its warm-up`() = runTest {
+        val cues = mutableListOf<WorkoutCue>()
+        recorder.onCue = { cues += it }
+        val id = recorder.start()
+        // 120 s at 3 m/s: 360 of the warm-up's 600 m.
+        feed(recorder, seconds = 120, startMs = Traces.START_MS)
+
+        recorder.loadSession(session)
+
+        val progress = (recorder.state.value as RecordingState.Active).workout!!
+        assertEquals("Warm up", progress.segment.label)
+        assertEquals(240.0, progress.remainingM!!, 10.0)
+        assertEquals("Warm up", cues.filterIsInstance<WorkoutCue.StepStart>().single().segment.label)
+        assertEquals(0L, repository.observeRun(id).first()!!.workoutStartActiveMs)
+    }
+
+    @Test
+    fun `a session loaded after a long warm-up opens on its first rep`() = runTest {
+        val id = recorder.start()
+        // 1000 m: more than the 600 m warm-up asked for.
+        feed(recorder, seconds = 333, startMs = Traces.START_MS)
+
+        recorder.loadSession(session)
+
+        val progress = (recorder.state.value as RecordingState.Active).workout!!
+        assertEquals("Hard", progress.segment.label)
+        assertTrue(progress.remainingMs!! in 55_000L..60_000L)
+        val run = repository.observeRun(id).first()!!
+        assertTrue(run.workoutStartActiveMs > 0)
+
+        // The crash path rebuilds the same place from the stored start.
+        val revived = RunRecorder(repository = repository, settings = settings, clock = clock)
+        assertTrue(revived.recover(id))
+        assertEquals("Hard", (revived.state.value as RecordingState.Active).workout!!.segment.label)
+    }
+
+    @Test
+    fun `a session unloaded and loaded again is replaced, not doubled`() = runTest {
+        val id = recorder.start(session = session)
+        feed(recorder, seconds = 60, startMs = Traces.START_MS)
+        recorder.nextSegment()
+        recorder.endSession()
+        assertNull((recorder.state.value as RecordingState.Active).workout)
+
+        recorder.loadSession(session)
+
+        val run = repository.observeRun(id).first()!!
+        assertNull("the old session's skips belonged to the old session", run.workoutAdvancesActiveMs)
+        assertEquals(7, repository.workoutSegmentsFor(id).size)
+        assertNotNull((recorder.state.value as RecordingState.Active).workout)
+    }
 }

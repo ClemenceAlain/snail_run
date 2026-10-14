@@ -12,6 +12,7 @@ import io.snailrun.domain.coach.WorkoutProgress
 import io.snailrun.domain.coach.WorkoutScheduler
 import io.snailrun.domain.coach.WorkoutSegment
 import io.snailrun.domain.coach.WorkoutSegments
+import io.snailrun.domain.coach.WorkoutStart
 import io.snailrun.domain.coach.WorkoutType
 import io.snailrun.domain.geo.TrackSmoother
 import io.snailrun.domain.metrics.AutoPauseDetector
@@ -110,6 +111,10 @@ class RunRecorder(
     private var workoutType: WorkoutType? = null
     private var workoutCursor = WorkoutCursor()
 
+    /** Where in the run the session began; see [WorkoutStart]. Zero unless loaded mid-run. */
+    private var workoutStartMs = 0L
+    private var workoutStartM = 0.0
+
     private val pending = mutableListOf<TrackPoint>()
     private val recorded = mutableListOf<TrackPoint>()
     private var lastFlushMs = 0L
@@ -156,6 +161,8 @@ class RunRecorder(
         }
         workoutType = session?.type.takeIf { workout != null }
         workoutCursor = WorkoutCursor()
+        workoutStartMs = 0
+        workoutStartM = 0.0
 
         val now = clock.millis()
         val id = repository.startRun(now, source)
@@ -194,6 +201,8 @@ class RunRecorder(
         workout = segments.takeIf { it.isNotEmpty() }?.let {
             WorkoutScheduler(it, WorkoutCueConfig(nudgeOffPace = saved.coach.nudgeOffPace))
         }
+        workoutStartMs = run.workoutStartActiveMs
+        workoutStartM = WorkoutStart.metersAt(stored, workoutStartMs)
         workoutCursor = replayWorkout(stored, run.workoutAdvancesActiveMs)
         autoPause = if (saved.autoPauseEnabled) AutoPauseDetector() else null
         autoPauseSmoother = TrackSmoother()
@@ -319,15 +328,26 @@ class RunRecorder(
         return smoothed.speedMps
     }
 
-    /** Finishes the run and returns its id, or null if nothing was being recorded. */
+    /**
+     * Finishes the run and returns the id it was saved under, or null if nothing was
+     * saved.
+     *
+     * A run that never got anywhere is deleted rather than saved: it is a Start pressed
+     * by mistake, or a stop at the door, and keeping it would put an empty day in the
+     * calendar. A run started soon after the previous one ended is folded into it.
+     */
     suspend fun finish(): Long? = mutex.withLock {
         val id = runId ?: return@withLock null
         val metrics = accumulator.finish()
-        flush(id)
-        repository.completeRun(id, metrics, clock.millis())
         runId = null
         _state.value = RecordingState.Idle
-        id
+        if (metrics.distanceMeters < MIN_SAVED_METERS) {
+            repository.deleteRun(id)
+            return@withLock null
+        }
+        flush(id)
+        repository.completeRun(id, metrics, clock.millis())
+        repository.mergeWithPrevious(id)
     }
 
     suspend fun discard() = mutex.withLock {
@@ -387,11 +407,56 @@ class RunRecorder(
         if (workoutCursor.complete) return@withLock
 
         val metrics = accumulator.metrics
-        workoutCursor = session.advance(metrics.activeDurationMs, metrics.distanceMeters, workoutCursor)
-        repository.recordWorkoutAdvance(id, metrics.activeDurationMs)
+        workoutCursor = session.advance(sessionMs(metrics), sessionM(metrics), workoutCursor)
+        repository.recordWorkoutAdvance(id, sessionMs(metrics))
         maybeCue(metrics)
         publish()
     }
+
+    /**
+     * Loads a session into the run already going.
+     *
+     * The running done so far counts towards the session's warm-up, so loading it ten
+     * minutes in does not ask for another fifteen minutes of warm-up — see
+     * [WorkoutStart.creditedStart]. A session already loaded is replaced.
+     */
+    suspend fun loadSession(session: Workout) = mutex.withLock {
+        val id = runId ?: return@withLock
+        val segments = WorkoutSegments.of(session)
+        if (segments.isEmpty()) return@withLock
+        val saved = settings.settings.first()
+        val metrics = accumulator.metrics
+
+        workout = WorkoutScheduler(segments, WorkoutCueConfig(nudgeOffPace = saved.coach.nudgeOffPace))
+        workoutType = session.type
+        workoutStartMs = WorkoutStart.creditedStart(
+            segments = segments,
+            points = recorded,
+            nowActiveMs = metrics.activeDurationMs,
+            nowMeters = metrics.distanceMeters,
+        )
+        workoutStartM = if (workoutStartMs >= metrics.activeDurationMs) {
+            metrics.distanceMeters
+        } else {
+            WorkoutStart.metersAt(recorded, workoutStartMs)
+        }
+        // Flushed first, so a crash replays the same track this load was worked out on.
+        flush(id)
+        repository.attachWorkout(id, session.type, segments, workoutStartMs)
+
+        // Caught up over the track already run, then told where they are: the step
+        // they are in is news, even when it is the warm-up they are halfway through.
+        workoutCursor = replayWorkout(recorded, null)
+        if (workoutCursor.opened && !workoutCursor.complete) {
+            workoutCursor = workoutCursor.copy(announcedIndex = -1)
+        }
+        maybeCue(metrics)
+        publish()
+    }
+
+    /** Active duration and distance since the session began. */
+    private fun sessionMs(metrics: RunMetrics) = (metrics.activeDurationMs - workoutStartMs).coerceAtLeast(0)
+    private fun sessionM(metrics: RunMetrics) = (metrics.distanceMeters - workoutStartM).coerceAtLeast(0.0)
 
     /** Drops the guidance and keeps recording. The run is a run either way. */
     suspend fun endSession() = mutex.withLock {
@@ -410,8 +475,8 @@ class RunRecorder(
     private fun maybeCue(metrics: RunMetrics) {
         val session = workout ?: return
         val (_, cues, next) = session.evaluate(
-            activeMs = metrics.activeDurationMs,
-            meters = metrics.distanceMeters,
+            activeMs = sessionMs(metrics),
+            meters = sessionM(metrics),
             paceSecPerKm = metrics.paceSecPerKm,
             cursor = workoutCursor,
         )
@@ -425,29 +490,20 @@ class RunRecorder(
     private fun replayWorkout(points: List<TrackPoint>, advances: String?): WorkoutCursor {
         val session = workout ?: return WorkoutCursor()
         val marks = advances?.split(',')?.mapNotNull(String::toLongOrNull).orEmpty().sorted()
+        val timeline = WorkoutStart.timeline(points)
 
         var replayed = WorkoutCursor()
         var applied = 0
-        var activeMs = 0L
-        var previous: TrackPoint? = null
-
-        points.forEach { point ->
-            previous?.let { before ->
-                val delta = point.timestampMs - before.timestampMs
-                if (point.segment == before.segment) {
-                    activeMs += TrackGaps.countable(
-                        gapMs = delta,
-                        straightLineM = point.cumulativeDistanceM - before.cumulativeDistanceM,
-                    )
-                }
-            }
-            previous = point
+        points.forEachIndexed { i, point ->
+            if (timeline[i] < workoutStartMs) return@forEachIndexed
+            val activeMs = timeline[i] - workoutStartMs
+            val meters = point.cumulativeDistanceM - workoutStartM
 
             while (applied < marks.size && marks[applied] <= activeMs) {
-                replayed = session.advance(activeMs, point.cumulativeDistanceM, replayed)
+                replayed = session.advance(activeMs, meters, replayed)
                 applied++
             }
-            replayed = session.evaluate(activeMs, point.cumulativeDistanceM, null, replayed).third
+            replayed = session.evaluate(activeMs, meters, null, replayed).third
         }
         return replayed
     }
@@ -460,13 +516,14 @@ class RunRecorder(
             metrics = metrics,
             splits = currentSplits(),
             startedAtEpochMs = startedAtEpochMs,
-            workout = workout?.progressOf(
-                workoutCursor,
-                metrics.activeDurationMs,
-                metrics.distanceMeters,
-            ),
+            workout = workout?.progressOf(workoutCursor, sessionMs(metrics), sessionM(metrics)),
             workoutType = workoutType,
             workoutSegments = workout?.segments.orEmpty(),
         )
+    }
+
+    companion object {
+        /** Under this, a finished run is a mistake and is not kept. GPS drift rarely gets past it. */
+        const val MIN_SAVED_METERS = 50.0
     }
 }

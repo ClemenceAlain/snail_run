@@ -77,7 +77,7 @@ class RunDetailViewModel(
             ?.split(',')
             ?.mapNotNull(String::toLongOrNull)
             .orEmpty()
-        return WorkoutReview.of(segments, advances, points)
+        return WorkoutReview.of(segments, advances, points, run.workoutStartActiveMs)
     }
 
     /** Drag on the graph: what did this stretch of the run actually average? */

@@ -48,6 +48,17 @@ class WorkoutReviewTest {
     }
 
     @Test
+    fun `a session loaded mid-run is reviewed from where it was loaded`() {
+        // 100 s of running first, then the session: everything shifts by 100 s and 400 m.
+        val results = WorkoutReview.of(segments, emptyList(), track(910, 4.0), startActiveMs = 100_000)
+        assertEquals(5, results.size)
+        assertEquals(400.0, results[0].startedAtMeters, 0.5)
+        assertEquals(1_000.0, results[0].actualMeters, 1.0)
+        assertEquals(1_400.0, results[1].startedAtMeters, 1.0)
+        assertEquals(120_000L, results[1].actualMs)
+    }
+
+    @Test
     fun `a rep is measured over the rep and not over the run`() {
         val results = WorkoutReview.of(segments, emptyList(), track(810, 4.0))
         val rep = results[1]

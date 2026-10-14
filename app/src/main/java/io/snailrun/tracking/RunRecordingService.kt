@@ -70,6 +70,11 @@ class RunRecordingService : Service() {
             ACTION_RECOVER -> recoverRecording(intent.getLongExtra(EXTRA_RUN_ID, -1))
             ACTION_NEXT_SEGMENT -> scope.launch { container.runRecorder.nextSegment() }
             ACTION_END_SESSION -> scope.launch { container.runRecorder.endSession() }
+            ACTION_LOAD_SESSION -> scope.launch {
+                // Taken, like at the start: the slot holds one session for one press.
+                container.armedWorkout.also { container.armedWorkout = null }
+                    ?.let { container.runRecorder.loadSession(it) }
+            }
         }
 
         // Never sticky. A restart after process death would be a background start of a
@@ -254,6 +259,7 @@ class RunRecordingService : Service() {
         const val ACTION_RECOVER = "io.snailrun.action.RECOVER"
         const val ACTION_NEXT_SEGMENT = "io.snailrun.action.NEXT_SEGMENT"
         const val ACTION_END_SESSION = "io.snailrun.action.END_SESSION"
+        const val ACTION_LOAD_SESSION = "io.snailrun.action.LOAD_SESSION"
         const val EXTRA_RUN_ID = "runId"
 
         fun start(context: Context) = send(context, ACTION_START)
@@ -262,6 +268,9 @@ class RunRecordingService : Service() {
         fun finish(context: Context) = send(context, ACTION_FINISH)
         fun nextSegment(context: Context) = send(context, ACTION_NEXT_SEGMENT)
         fun endSession(context: Context) = send(context, ACTION_END_SESSION)
+
+        /** Loads the session in [io.snailrun.AppContainer.armedWorkout] into the run going. */
+        fun loadSession(context: Context) = send(context, ACTION_LOAD_SESSION)
 
         fun recover(context: Context, runId: Long) {
             context.startForegroundService(

@@ -59,6 +59,12 @@ data class RunEntity(
      * not. Almost always null.
      */
     val workoutAdvancesActiveMs: String? = null,
+    /**
+     * Active duration into the run at which its session began. Zero for a session loaded
+     * before the start; later for one loaded mid-run. The marks in
+     * [workoutAdvancesActiveMs] count from here.
+     */
+    val workoutStartActiveMs: Long = 0,
 )
 
 @Entity(

@@ -214,6 +214,10 @@ class MainActivity : ComponentActivity() {
             onArmSession = viewModel::armSession,
             onNextSegment = { RunRecordingService.nextSegment(this) },
             onEndSession = { RunRecordingService.endSession(this) },
+            onLoadSession = { workout ->
+                container.armedWorkout = workout
+                RunRecordingService.loadSession(this)
+            },
             todaysShared = ui.todaysShared,
         )
 

@@ -90,6 +90,8 @@ fun RecordScreen(
     onArmSession: (Workout?) -> Unit = {},
     onNextSegment: () -> Unit = {},
     onEndSession: () -> Unit = {},
+    /** Loads a session into the run already going. */
+    onLoadSession: (Workout) -> Unit = {},
     todaysShared: io.snailrun.domain.coach.SharedSession? = null,
 ) {
     val active = state as? RecordingState.Active
@@ -183,6 +185,23 @@ fun RecordScreen(
                     strength = todaysStrength,
                     armed = armedSession != null,
                     onArm = { onArmSession(if (armedSession == null) todaysSession else null) },
+                    onShowDetail = { workout ->
+                        detail = SessionDetailRequest(workout = workout)
+                    },
+                    onStartStrength = onStartStrength,
+                    partner = todaysShared?.partner,
+                    partnerLines = partnerLines,
+                )
+                Spacer(Modifier.height(Spacing.l))
+            } else if (active != null && active.workout == null && todaysSession != null) {
+                // Mid-run, with no session going — never loaded, or unloaded. Loading it
+                // now counts the running already done towards its warm-up. No strength
+                // line here: it is not something to do mid-run.
+                TodaysSession(
+                    session = todaysSession,
+                    strength = null,
+                    armed = false,
+                    onArm = { onLoadSession(todaysSession) },
                     onShowDetail = { workout ->
                         detail = SessionDetailRequest(workout = workout)
                     },
@@ -486,7 +505,9 @@ private fun SessionPanel(
 
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
             TextButton(onClick = onNext) { Text("NEXT") }
-            TextButton(onClick = onEnd) { Text("END SESSION") }
+            // Unloading stops the guidance and keeps what was run of the session for the
+            // review; the session can be loaded again from the card that comes back.
+            TextButton(onClick = onEnd) { Text("UNLOAD") }
         }
     }
 }

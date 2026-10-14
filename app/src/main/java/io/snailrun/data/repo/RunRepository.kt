@@ -4,6 +4,7 @@ import io.snailrun.data.db.RunDao
 import io.snailrun.data.db.RunEntity
 import io.snailrun.domain.analysis.BestEffortFinder
 import io.snailrun.domain.coach.WorkoutSegment
+import io.snailrun.domain.coach.WorkoutStart
 import io.snailrun.domain.coach.WorkoutType
 import io.snailrun.domain.analysis.SplitCalculator
 import io.snailrun.domain.geo.TrackSmoother
@@ -145,11 +146,24 @@ class RunRepository(
      * would still write. What was asked of the runner has to be kept if the run's own
      * screen is ever to say whether they did it.
      */
-    suspend fun attachWorkout(runId: Long, type: WorkoutType, segments: List<WorkoutSegment>) {
+    suspend fun attachWorkout(
+        runId: Long,
+        type: WorkoutType,
+        segments: List<WorkoutSegment>,
+        startActiveMs: Long = 0,
+    ) {
         if (segments.isEmpty()) return
         val run = dao.runById(runId) ?: return
-        dao.updateRun(run.copy(workoutType = type.name))
-        dao.insertWorkoutSegments(segments.map { it.toEntity(runId) })
+        // A session loaded over another replaces it, marks and all: the marks were
+        // presses of Next inside the old one.
+        dao.replaceWorkout(
+            run = run.copy(
+                workoutType = type.name,
+                workoutAdvancesActiveMs = null,
+                workoutStartActiveMs = startActiveMs,
+            ),
+            segments = segments.map { it.toEntity(runId) },
+        )
     }
 
     suspend fun workoutSegmentsFor(runId: Long): List<WorkoutSegment> =
@@ -233,6 +247,58 @@ class RunRepository(
             splits = splits.map { it.toEntity(runId) },
             efforts = efforts.map { it.toEntity(runId) },
         )
+    }
+
+    /**
+     * Folds a just-finished run into the one before it, when the runner stopped and set
+     * off again within [MERGE_GAP_MS]. Returns the id of the run that remains.
+     *
+     * The second run's track follows the first as a new segment, so the gap between them
+     * is neither drawn nor counted as running. Its session, if it had one, replaces the
+     * first run's — the same rule as loading a session over another.
+     */
+    suspend fun mergeWithPrevious(runId: Long): Long {
+        val run = dao.runById(runId) ?: return runId
+        if (run.status != STATUS_COMPLETE || run.source == SOURCE_MANUAL) return runId
+        val previous = dao.runEndedJustBefore(
+            excludeId = runId,
+            source = run.source,
+            startedAtEpochMs = run.startedAtEpochMs,
+            maxGapMs = MERGE_GAP_MS,
+        ) ?: return runId
+
+        val before = dao.pointsFor(previous.id)
+        val after = dao.pointsFor(runId)
+        val seqOffset = (before.lastOrNull()?.seq ?: -1) + 1
+        val segmentOffset = (before.lastOrNull()?.segment ?: -1) + 1
+        val moved = after.map {
+            it.copy(runId = previous.id, seq = it.seq + seqOffset, segment = it.segment + segmentOffset)
+        }
+
+        val segments = dao.workoutSegmentsFor(runId).takeIf { it.isNotEmpty() }
+        val previousActiveMs = WorkoutStart.timeline(before.map { it.toDomain() }).lastOrNull() ?: 0L
+        val merged = previous.copy(
+            endedAtEpochMs = run.endedAtEpochMs,
+            elapsedTimeMs = (run.endedAtEpochMs ?: previous.startedAtEpochMs) - previous.startedAtEpochMs,
+            distanceMilestonesAnnounced = 0,
+            lastTimeAnnouncedActiveMs = 0,
+            smootherVersion = 0,
+        ).let { merged ->
+            if (segments == null) merged else merged.copy(
+                workoutType = run.workoutType,
+                workoutAdvancesActiveMs = run.workoutAdvancesActiveMs,
+                workoutStartActiveMs = previousActiveMs + run.workoutStartActiveMs,
+            )
+        }
+
+        dao.mergeRuns(
+            into = merged,
+            points = moved,
+            segments = segments?.map { it.copy(runId = previous.id) },
+            fromId = runId,
+        )
+        reprocessRun(previous.id)
+        return previous.id
     }
 
     /**
@@ -333,6 +399,9 @@ class RunRepository(
     }
 
     companion object {
+        /** Two runs closer together than this are one run with a stop in it. */
+        const val MERGE_GAP_MS = 10 * 60_000L
+
         private val DATE = DateTimeFormatter.ISO_LOCAL_DATE
 
         fun localDate(epochMs: Long, zone: ZoneId): String =
