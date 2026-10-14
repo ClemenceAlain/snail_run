@@ -96,6 +96,38 @@ class TrackSmoother(private val config: Config = Config()) {
     private val north = AxisFilter()
 
     private enum class Step { Start, Update }
+
+    /** What the forward pass knew at one fix: enough to run [backwardPass] over. */
+    internal class Snapshot(
+        val fix: SmoothedFix,
+        val timestampMs: Long,
+        /** Taken in by an update, so predicted from the fix before it. */
+        val updated: Boolean,
+        val east: DoubleArray,
+        val north: DoubleArray,
+        val eastPredicted: DoubleArray,
+        val northPredicted: DoubleArray,
+        val metresPerDegLat: Double,
+        val metresPerDegLon: Double,
+    )
+
+    /** A position after the backward pass, with the speed it implies. */
+    internal data class SmoothedPoint(val lat: Double, val lon: Double, val speedMps: Double)
+
+    private var lastFix: SmoothedFix? = null
+
+    /** The state after the last [onFix]. */
+    internal fun snapshot() = Snapshot(
+        fix = checkNotNull(lastFix) { "no fix yet" },
+        timestampMs = lastTimestampMs,
+        updated = lastStep == Step.Update,
+        east = east.state(),
+        north = north.state(),
+        eastPredicted = east.predicted.copyOf(),
+        northPredicted = north.predicted.copyOf(),
+        metresPerDegLat = metresPerDegLat,
+        metresPerDegLon = metresPerDegLon,
+    )
     private var lastTimestampMs = 0L
     private var consecutiveOutliers = 0
     private var awaitingVelocity = false
@@ -111,6 +143,13 @@ class TrackSmoother(private val config: Config = Config()) {
     }
 
     fun onFix(
+        timestampMs: Long,
+        lat: Double,
+        lon: Double,
+        accuracyM: Float?,
+    ): SmoothedFix = take(timestampMs, lat, lon, accuracyM).also { lastFix = it }
+
+    private fun take(
         timestampMs: Long,
         lat: Double,
         lon: Double,
@@ -349,13 +388,7 @@ class TrackSmoother(private val config: Config = Config()) {
 
             val n = points.size
             val smoother = TrackSmoother(config)
-            val forward = arrayOfNulls<SmoothedFix>(n)
-            val updated = BooleanArray(n)
-            val eastState = arrayOfNulls<DoubleArray>(n)
-            val northState = arrayOfNulls<DoubleArray>(n)
-            val eastPredicted = arrayOfNulls<DoubleArray>(n)
-            val northPredicted = arrayOfNulls<DoubleArray>(n)
-            val metresPerDeg = arrayOfNulls<DoubleArray>(n)
+            val forward = ArrayList<Snapshot>(n)
             /** Whether the step from the point before counts as distance. */
             val linked = BooleanArray(n)
 
@@ -390,62 +423,70 @@ class TrackSmoother(private val config: Config = Config()) {
                 }
                 previousPoint = point
                 linked[i] = hasPrevious
-
-                forward[i] = smoother.onFix(point.timestampMs, point.lat, point.lon, point.accuracyM)
-                updated[i] = smoother.lastStep == Step.Update
-                eastState[i] = smoother.east.state()
-                northState[i] = smoother.north.state()
-                eastPredicted[i] = smoother.east.predicted.copyOf()
-                northPredicted[i] = smoother.north.predicted.copyOf()
-                metresPerDeg[i] = doubleArrayOf(smoother.metresPerDegLat, smoother.metresPerDegLon)
+                smoother.onFix(point.timestampMs, point.lat, point.lon, point.accuracyM)
+                forward += smoother.snapshot()
                 hasPrevious = true
             }
 
-            // Backward pass. A fix taken in by an update was predicted from the one
-            // before it, so the correction can flow back across that link; a restart
-            // breaks the chain, and each stretch between restarts is smoothed on its own.
-            val eastShift = DoubleArray(n)
-            val northShift = DoubleArray(n)
-            val speed = DoubleArray(n) { forward[it]!!.speedMps }
-            var eastNext = eastState[n - 1]!!.copyOfRange(0, 2)
-            var northNext = northState[n - 1]!!.copyOfRange(0, 2)
-            for (i in n - 2 downTo 0) {
-                if (!updated[i + 1]) {
-                    eastNext = eastState[i]!!.copyOfRange(0, 2)
-                    northNext = northState[i]!!.copyOfRange(0, 2)
-                    continue
-                }
-                val dt = (points[i + 1].timestampMs - points[i].timestampMs) / 1000.0
-                eastNext = backward(eastState[i]!!, eastPredicted[i + 1]!!, eastNext, dt)
-                northNext = backward(northState[i]!!, northPredicted[i + 1]!!, northNext, dt)
-                eastShift[i] = eastNext[0] - eastState[i]!![0]
-                northShift[i] = northNext[0] - northState[i]!![0]
-                speed[i] = hypot(eastNext[1], northNext[1])
-            }
+            val smoothed = backwardPass(forward)
 
             val out = ArrayList<TrackPoint>(n)
             var distance = 0.0
-            var previousLat = 0.0
-            var previousLon = 0.0
             for ((i, point) in points.withIndex()) {
-                val fix = forward[i]!!
-                val (perLat, perLon) = metresPerDeg[i]!!.let { it[0] to it[1] }
-                val lat = fix.lat + if (perLat > 0) northShift[i] / perLat else 0.0
-                val lon = fix.lon + if (perLon > 0) eastShift[i] / perLon else 0.0
+                val here = smoothed[i]
                 if (linked[i]) {
-                    val step = GeoDistance.between(previousLat, previousLon, lat, lon)
+                    val before = smoothed[i - 1]
+                    val step = GeoDistance.between(before.lat, before.lon, here.lat, here.lon)
                     if (step >= MIN_STEP_M) distance += step
                 }
-                previousLat = lat
-                previousLon = lon
                 out += point.copy(
-                    lat = lat,
-                    lon = lon,
-                    speedMps = speed[i].toFloat(),
+                    lat = here.lat,
+                    lon = here.lon,
+                    speedMps = here.speedMps.toFloat(),
                     cumulativeDistanceM = distance,
                 )
             }
             return out
+        }
+
+        /**
+         * Runs back over a stretch of forward-filtered fixes, so each position is also
+         * corrected by the fixes that came after it.
+         *
+         * A fix taken in by an update was predicted from the one before it, so the
+         * correction can flow back across that link; a restart breaks the chain, and
+         * each stretch between restarts is smoothed on its own. The last fix has nothing
+         * after it and keeps its forward estimate. A stretch cut from the middle of a run
+         * — the last few seconds of a live one — is handled the same way: the oldest fix
+         * in it is corrected only by what follows it inside the stretch.
+         */
+        internal fun backwardPass(forward: List<Snapshot>): List<SmoothedPoint> {
+            val n = forward.size
+            if (n == 0) return emptyList()
+            val out = arrayOfNulls<SmoothedPoint>(n)
+            fun keep(i: Int) = SmoothedPoint(forward[i].fix.lat, forward[i].fix.lon, forward[i].fix.speedMps)
+            out[n - 1] = keep(n - 1)
+            var eastNext = forward[n - 1].east.copyOfRange(0, 2)
+            var northNext = forward[n - 1].north.copyOfRange(0, 2)
+            for (i in n - 2 downTo 0) {
+                val here = forward[i]
+                val after = forward[i + 1]
+                if (!after.updated) {
+                    out[i] = keep(i)
+                    eastNext = here.east.copyOfRange(0, 2)
+                    northNext = here.north.copyOfRange(0, 2)
+                    continue
+                }
+                val dt = (after.timestampMs - here.timestampMs) / 1000.0
+                eastNext = backward(here.east, after.eastPredicted, eastNext, dt)
+                northNext = backward(here.north, after.northPredicted, northNext, dt)
+                out[i] = SmoothedPoint(
+                    lat = here.fix.lat + if (here.metresPerDegLat > 0) (northNext[0] - here.north[0]) / here.metresPerDegLat else 0.0,
+                    lon = here.fix.lon + if (here.metresPerDegLon > 0) (eastNext[0] - here.east[0]) / here.metresPerDegLon else 0.0,
+                    speedMps = hypot(eastNext[1], northNext[1]),
+                )
+            }
+            return out.map { it!! }
         }
 
         /**

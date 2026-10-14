@@ -55,12 +55,40 @@ class MetricsAccumulator(
      * of what the chip actually said, so a better filter later can be run over runs
      * already recorded. Only the derived figures are smoothed.
      */
-    private val smoother: TrackSmoother? = TrackSmoother(),
+    private val smoother: TrackSmoother? = TrackSmoother(TrackSmoother.STORED),
+    /** See [LIVE_LAG_FIXES]. A parameter so a test can measure what the lag buys. */
+    private val lagFixes: Int = LIVE_LAG_FIXES,
 ) {
     private val filter = FixFilter(filterConfig)
 
     private var status = RunStatus.RECORDING
+
+    /**
+     * The distance shown. Never goes down: it is the larger of what it was and
+     * [committed] plus the provisional tail, which can shrink by a few centimetres
+     * when a new fix redraws the last few seconds.
+     */
     private var distance = 0.0
+
+    /**
+     * Distance up to the oldest fix of [window], measured between positions that have
+     * been corrected by the fixes after them and will not move again.
+     */
+    private var committed = 0.0
+
+    /**
+     * The last few seconds, still provisional. Each new fix runs the smoother's backward
+     * pass over them, so a position is corrected by what came after it before its step
+     * is committed. A filter that only looks back overshoots the start of every bend and
+     * reads a running track 12 % long; looking a few seconds ahead takes most of that out.
+     */
+    private val window = ArrayDeque<TrackSmoother.Snapshot>()
+
+    /** For each fix in [window], whether the step into it counts. See [smoothedStep]. */
+    private val windowCounts = ArrayDeque<Boolean>()
+
+    /** The newest committed position in this stretch of track, or null at its start. */
+    private var settled: TrackSmoother.SmoothedPoint? = null
     private var activeDurationMs = 0L
 
     /**
@@ -103,6 +131,8 @@ class MetricsAccumulator(
         if (points.isEmpty()) return
         val last = points.last()
         distance = last.cumulativeDistanceM
+        committed = distance
+        clearWindow()
         seq = last.seq + 1
         // A recovered run always resumes in a new segment: whatever happened while the
         // app was dead is a gap, not a straight line.
@@ -127,6 +157,7 @@ class MetricsAccumulator(
         paceSmoother.reset()
         // The smoother's velocity must not survive a pause: carried across it, the first
         // fix on resume would be predicted somewhere the runner never went.
+        settleWindow()
         smoother?.reset()
         lastSmoothed = null
         lastTimestampMs = null
@@ -163,13 +194,14 @@ class MetricsAccumulator(
                 lastTimestampMs = fix.epochMs
                 if (gapMs > MISSED_FIX_MS) untrustedSpeedFixes = UNTRUSTED_AFTER_HOLE
 
-                val stepM = when (gap) {
+                val shownBefore = distance
+                when (gap) {
                     GapKind.Continuous -> {
                         // Guard against a clock jump being counted as running.
                         if (gapMs > 0) activeDurationMs += gapMs
-                        val step = smoothedStep(fix) ?: result.distanceDeltaM
-                        sampleSpeed(fix, step, previousTimestampMs)
-                        step
+                        if (!smoothedStep(fix)) committed += result.distanceDeltaM
+                        distance = maxOf(distance, committed + tail())
+                        sampleSpeed(fix, distance - shownBefore, previousTimestampMs)
                     }
 
                     // The signal came back somewhere the runner could have run to. The
@@ -178,6 +210,7 @@ class MetricsAccumulator(
                     GapKind.Inferred -> {
                         activeDurationMs += gapMs
                         inferAcross(fix, straightLineM, gapMs)
+                        distance = maxOf(distance, committed + tail())
                     }
 
                     // Too long, too far or too slow to be running. Nothing crosses it:
@@ -185,10 +218,8 @@ class MetricsAccumulator(
                     GapKind.Broken -> {
                         breakTrack()
                         smoothedStep(fix)
-                        0.0
                     }
                 }
-                distance += stepM
                 elevation.onElevation(fix.altitudeM)
                 quality = qualityFor(fix.accuracyM)
 
@@ -219,12 +250,14 @@ class MetricsAccumulator(
      * because the chip's instantaneous reading at the moment it regained the sky says
      * nothing about the two minutes before it.
      */
-    private fun inferAcross(fix: RawFix, straightLineM: Double, gapMs: Long): Double {
+    private fun inferAcross(fix: RawFix, straightLineM: Double, gapMs: Long) {
+        settleWindow()
+        committed += straightLineM
         smoother?.reset()
-        lastSmoothed = smoother?.onFix(fix.epochMs, fix.lat, fix.lon, fix.accuracyM)
+        lastSmoothed = null
+        smoothedStep(fix)
         paceSmoother.reset()
         if (gapMs > 0) paceSmoother.onSample(straightLineM / (gapMs / 1000.0))
-        return straightLineM
     }
 
     /**
@@ -237,6 +270,7 @@ class MetricsAccumulator(
     private fun breakTrack() {
         segment++
         paceSmoother.reset()
+        settleWindow()
         smoother?.reset()
         lastSmoothed = null
     }
@@ -257,16 +291,57 @@ class MetricsAccumulator(
      * stops, whereas the filter — deliberately stiff, so that it does not chase jitter —
      * takes several seconds to accept it and coasts a good ten metres in the meantime.
      */
-    private fun smoothedStep(fix: RawFix): Double? {
-        val smoother = smoother ?: return null
+    private fun smoothedStep(fix: RawFix): Boolean {
+        val smoother = smoother ?: return false
         val next = smoother.onFix(fix.epochMs, fix.lat, fix.lon, fix.accuracyM)
         val previous = lastSmoothed
         lastSmoothed = next
         val trustReported = untrustedSpeedFixes == 0
         if (untrustedSpeedFixes > 0) untrustedSpeedFixes--
-        if (previous == null) return 0.0
-        if (gateSpeedOf(fix, next, trustReported) < MIN_SMOOTHED_SPEED_MPS) return 0.0
-        val step = GeoDistance.between(previous.lat, previous.lon, next.lat, next.lon)
+        val counts = previous != null &&
+            gateSpeedOf(fix, next, trustReported) >= MIN_SMOOTHED_SPEED_MPS
+
+        window.addLast(smoother.snapshot())
+        windowCounts.addLast(counts)
+        if (window.size > lagFixes + 1) {
+            // The oldest fix has now been corrected by every fix the window holds after
+            // it. Its step is committed and it leaves.
+            val oldest = TrackSmoother.backwardPass(window).first()
+            if (windowCounts.first()) committed += stepBetween(settled, oldest)
+            settled = oldest
+            window.removeFirst()
+            windowCounts.removeFirst()
+        }
+        return true
+    }
+
+    /** The provisional distance across [window], from the last committed position. */
+    private fun tail(): Double {
+        if (window.isEmpty()) return 0.0
+        var total = 0.0
+        var previous = settled
+        TrackSmoother.backwardPass(window).forEachIndexed { i, point ->
+            if (windowCounts[i]) total += stepBetween(previous, point)
+            previous = point
+        }
+        return total
+    }
+
+    /** Commits the whole window: the track stops here, so nothing after it will correct it. */
+    private fun settleWindow() {
+        committed += tail()
+        clearWindow()
+    }
+
+    private fun clearWindow() {
+        window.clear()
+        windowCounts.clear()
+        settled = null
+    }
+
+    private fun stepBetween(from: TrackSmoother.SmoothedPoint?, to: TrackSmoother.SmoothedPoint): Double {
+        from ?: return 0.0
+        val step = GeoDistance.between(from.lat, from.lon, to.lat, to.lon)
         return if (step >= MIN_SMOOTHED_STEP_M) step else 0.0
     }
 
@@ -307,17 +382,24 @@ class MetricsAccumulator(
         else -> current
     }
 
-    private companion object {
+    companion object {
         /** Sub-centimetre steps are arithmetic, not movement. */
-        const val MIN_SMOOTHED_STEP_M = 0.05
+        private const val MIN_SMOOTHED_STEP_M = 0.05
 
         /** A third of a metre per second is a shuffle, not a walk, let alone a run. */
-        const val MIN_SMOOTHED_SPEED_MPS = 0.4
+        private const val MIN_SMOOTHED_SPEED_MPS = 0.4
 
         /** Longer than this between fixes and at least one was missed. */
-        const val MISSED_FIX_MS = 1_500L
+        private const val MISSED_FIX_MS = 1_500L
+
+        /**
+         * How many fixes the live distance waits for before committing a step. Six
+         * seconds: long enough for the backward pass to take the overshoot out of a
+         * bend, short enough that the number on screen is never visibly behind.
+         */
+        const val LIVE_LAG_FIXES = 6
 
         /** How many fixes after a hole the phone's speed is not believed for. */
-        const val UNTRUSTED_AFTER_HOLE = 2
+        private const val UNTRUSTED_AFTER_HOLE = 2
     }
 }

@@ -21,6 +21,32 @@ class MetricsAccumulatorTest {
     }
 
     /**
+     * Live, the distance waits a few seconds before committing each step, so the bends
+     * of a running track are measured with the fixes after them as well as before. Only
+     * looking back, it read the same laps 8–10 % long.
+     */
+    @Test
+    fun `the live distance holds a running track to its lane`() {
+        listOf(5.0 to 360, 3.0 to 600).forEach { (speed, seconds) ->
+            val accumulator = MetricsAccumulator()
+            Traces.trackLaps(seconds, speed, noiseM = 3.0).forEach { point ->
+                accumulator.onFix(
+                    io.snailrun.domain.model.RawFix(
+                        epochMs = point.timestampMs,
+                        lat = point.lat,
+                        lon = point.lon,
+                        accuracyM = point.accuracyM,
+                        speedMps = point.speedMps,
+                    )
+                )
+            }
+            val truth = speed * seconds
+            val live = accumulator.metrics.distanceMeters
+            assertTrue("at $speed m/s: $live m against $truth m", kotlin.math.abs(live - truth) / truth < 0.03)
+        }
+    }
+
+    /**
      * Taken from a recorded session: nine seconds without a fix mid-rep, then two fixes
      * on which the phone reported a speed of exactly zero while the runner was doing
      * four metres a second. Believing it lost forty metres of a 300 m rep.
