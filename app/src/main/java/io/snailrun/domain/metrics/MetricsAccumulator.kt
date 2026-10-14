@@ -62,6 +62,14 @@ class MetricsAccumulator(
     private var status = RunStatus.RECORDING
     private var distance = 0.0
     private var activeDurationMs = 0L
+
+    /**
+     * Fixes left before the phone's own speed is believed again. After a hole in the
+     * fixes some phones report a speed of exactly zero for a fix or two while the runner
+     * is plainly moving, and believing it threw away the whole step across the hole —
+     * forty metres of a 300 m rep, on one recorded session.
+     */
+    private var untrustedSpeedFixes = 0
     private var lastTimestampMs: Long? = null
     private var seq = 0
     private var segment = 0
@@ -153,6 +161,7 @@ class MetricsAccumulator(
                 else TrackGaps.classify(gapMs, straightLineM)
 
                 lastTimestampMs = fix.epochMs
+                if (gapMs > MISSED_FIX_MS) untrustedSpeedFixes = UNTRUSTED_AFTER_HOLE
 
                 val stepM = when (gap) {
                     GapKind.Continuous -> {
@@ -253,13 +262,16 @@ class MetricsAccumulator(
         val next = smoother.onFix(fix.epochMs, fix.lat, fix.lon, fix.accuracyM)
         val previous = lastSmoothed
         lastSmoothed = next
+        val trustReported = untrustedSpeedFixes == 0
+        if (untrustedSpeedFixes > 0) untrustedSpeedFixes--
         if (previous == null) return 0.0
-        if (gateSpeedOf(fix, next) < MIN_SMOOTHED_SPEED_MPS) return 0.0
+        if (gateSpeedOf(fix, next, trustReported) < MIN_SMOOTHED_SPEED_MPS) return 0.0
         val step = GeoDistance.between(previous.lat, previous.lon, next.lat, next.lon)
         return if (step >= MIN_SMOOTHED_STEP_M) step else 0.0
     }
 
-    private fun gateSpeedOf(fix: RawFix, smoothed: SmoothedFix): Double {
+    private fun gateSpeedOf(fix: RawFix, smoothed: SmoothedFix, trustReported: Boolean): Double {
+        if (!trustReported) return smoothed.speedMps
         val reported = fix.speedMps?.toDouble()
         val accuracy = fix.speedAccuracyMps
         return if (reported != null && (accuracy == null || accuracy < 1.0f)) reported
@@ -301,5 +313,11 @@ class MetricsAccumulator(
 
         /** A third of a metre per second is a shuffle, not a walk, let alone a run. */
         const val MIN_SMOOTHED_SPEED_MPS = 0.4
+
+        /** Longer than this between fixes and at least one was missed. */
+        const val MISSED_FIX_MS = 1_500L
+
+        /** How many fixes after a hole the phone's speed is not believed for. */
+        const val UNTRUSTED_AFTER_HOLE = 2
     }
 }

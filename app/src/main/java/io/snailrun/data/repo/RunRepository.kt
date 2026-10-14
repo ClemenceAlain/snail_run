@@ -161,6 +161,7 @@ class RunRepository(
                 workoutType = type.name,
                 workoutAdvancesActiveMs = null,
                 workoutStartActiveMs = startActiveMs,
+                workoutBoundariesActiveMs = null,
             ),
             segments = segments.map { it.toEntity(runId) },
         )
@@ -178,6 +179,14 @@ class RunRepository(
         val marks = (run.workoutAdvancesActiveMs?.split(',').orEmpty() + activeMs.toString())
             .filter { it.isNotBlank() }
         dao.updateRun(run.copy(workoutAdvancesActiveMs = marks.joinToString(",")))
+    }
+
+    /** Writes where each step has ended so far. See [RunEntity.workoutBoundariesActiveMs]. */
+    suspend fun recordWorkoutBoundaries(runId: Long, boundariesActiveMs: List<Long>) {
+        val run = dao.runById(runId) ?: return
+        dao.updateRun(
+            run.copy(workoutBoundariesActiveMs = boundariesActiveMs.joinToString(",").ifEmpty { null })
+        )
     }
 
     suspend fun appendPoints(runId: Long, points: List<TrackPoint>) {
@@ -288,6 +297,7 @@ class RunRepository(
                 workoutType = run.workoutType,
                 workoutAdvancesActiveMs = run.workoutAdvancesActiveMs,
                 workoutStartActiveMs = previousActiveMs + run.workoutStartActiveMs,
+                workoutBoundariesActiveMs = run.workoutBoundariesActiveMs,
             )
         }
 

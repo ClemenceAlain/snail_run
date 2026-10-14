@@ -32,7 +32,7 @@ abstract class SnailDatabase : RoomDatabase() {
          * that drifted from the annotation would let that check pass on a file this
          * build cannot read.
          */
-        const val SCHEMA_VERSION = 5
+        const val SCHEMA_VERSION = 6
 
         const val FILE_NAME = "snail-run.db"
 
@@ -106,11 +106,21 @@ abstract class SnailDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * The step boundaries a guided run was cued on. Null for every run already on the
+         * phone; their review falls back to replaying the track as it was counted live.
+         */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE runs ADD COLUMN workoutBoundariesActiveMs TEXT")
+            }
+        }
+
         fun build(context: Context): SnailDatabase =
             Room.databaseBuilder(context, SnailDatabase::class.java, FILE_NAME)
                 // Concurrent reads during a run's 10-second insert flushes.
                 .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .build()
     }
 }

@@ -65,6 +65,15 @@ data class RunEntity(
      * [workoutAdvancesActiveMs] count from here.
      */
     val workoutStartActiveMs: Long = 0,
+    /**
+     * Where each step of the session ended, as it was cued during the run: active
+     * duration from the session's start, comma-separated, one per finished step.
+     *
+     * Stored rather than worked out again from the track. A replay over a re-filtered
+     * track lands its boundaries metres away from the cues the runner heard, and on a
+     * 100 m jog that is enough to time a stretch of the rep before it.
+     */
+    val workoutBoundariesActiveMs: String? = null,
 )
 
 @Entity(

@@ -63,79 +63,99 @@ object WorkoutReview {
     /**
      * [startActiveMs] is where in the run the session was loaded. The track before it is
      * the runner's own running and is not judged against anything.
+     *
+     * [boundariesActiveMs] are where each step ended as it was cued, counted from the
+     * session's start. Each step is measured on [points] between those times, so the
+     * review times the stretch the runner was actually told to run. Runs recorded before
+     * the boundaries were stored pass null, and the boundaries are found again by
+     * replaying [cuePoints] — the track as it was counted live, which is the closest
+     * thing left to what the runner heard.
      */
     fun of(
         segments: List<WorkoutSegment>,
         advancesActiveMs: List<Long>,
         points: List<TrackPoint>,
         startActiveMs: Long = 0,
+        boundariesActiveMs: List<Long>? = null,
+        cuePoints: List<TrackPoint> = points,
     ): List<SegmentResult> {
         if (segments.isEmpty() || points.size < 2) return emptyList()
 
-        val scheduler = WorkoutScheduler(segments)
-        val marks = advancesActiveMs.sorted()
-        val results = mutableListOf<SegmentResult>()
-        // The same gate the accumulator uses: within a segment of the track, and across a
-        // hole in the fixes only where the runner ran through it.
         val timeline = WorkoutStart.timeline(points)
-        val startMeters = WorkoutStart.metersAt(points, startActiveMs)
+        if (timeline.last() < startActiveMs) return emptyList()
+        val boundaries = (boundariesActiveMs ?: boundaries(segments, advancesActiveMs, cuePoints, startActiveMs))
+            .take(segments.size)
+        val lastMs = timeline.last() - startActiveMs
 
-        var cursor = WorkoutCursor()
-        var applied = 0
-        var activeMs = 0L
-        var meters = 0.0
-
-        points.forEachIndexed { i, point ->
-            if (timeline[i] < startActiveMs) return@forEachIndexed
-            activeMs = timeline[i] - startActiveMs
-            meters = point.cumulativeDistanceM - startMeters
-
-            // A segment the runner ended by hand ends here; one that ran its course ends
-            // where the scheduler says, which is somewhere between this fix and the last.
-            while (applied < marks.size && marks[applied] <= activeMs && !cursor.complete) {
-                cursor = record(results, scheduler, cursor, scheduler.advance(activeMs, meters, cursor), startMeters)
-                applied++
-            }
-            while (true) {
-                val next = scheduler.advanceNaturally(activeMs, meters, cursor) ?: break
-                cursor = record(results, scheduler, cursor, next, startMeters)
-            }
-        }
-
-        // Whatever the runner was in the middle of when they pressed stop.
-        if (!cursor.complete && results.size <= cursor.segmentIndex) {
+        val results = mutableListOf<SegmentResult>()
+        var fromMs = 0L
+        for (index in segments.indices) {
+            val finished = index < boundaries.size
+            val toMs = if (finished) boundaries[index] else lastMs
+            val fromM = metersAt(points, timeline, startActiveMs + fromMs)
+            val toM = metersAt(points, timeline, startActiveMs + toMs)
             results += SegmentResult(
-                segment = segments[cursor.segmentIndex],
-                actualMs = (activeMs - cursor.segmentStartedActiveMs).coerceAtLeast(0),
-                actualMeters = (meters - cursor.segmentStartedMeters).coerceAtLeast(0.0),
-                startedAtMeters = startMeters + cursor.segmentStartedMeters,
+                segment = segments[index],
+                actualMs = (toMs - fromMs).coerceAtLeast(0),
+                actualMeters = (toM - fromM).coerceAtLeast(0.0),
+                startedAtMeters = fromM,
             )
+            // Whatever the runner was in the middle of when they pressed stop is the last.
+            if (!finished) break
+            fromMs = toMs
         }
         return results
     }
 
     /**
-     * Writes down the segment the cursor has just left.
-     *
-     * The new cursor's marks are the old segment's end, interpolated across the gap
-     * between two fixes, so a rep's figures are what it was run in rather than what the
-     * fix after it happened to say.
+     * Where each step ends when [points] are run back through the scheduler, counted from
+     * the session's start. The same scheduler the run was counted through, fed the same
+     * numbers in the same order.
      */
-    private fun record(
-        into: MutableList<SegmentResult>,
-        scheduler: WorkoutScheduler,
-        before: WorkoutCursor,
-        after: WorkoutCursor,
-        startMeters: Double,
-    ): WorkoutCursor {
-        into += SegmentResult(
-            segment = scheduler.segments[before.segmentIndex],
-            actualMs = (after.segmentStartedActiveMs - before.segmentStartedActiveMs)
-                .coerceAtLeast(0),
-            actualMeters = (after.segmentStartedMeters - before.segmentStartedMeters)
-                .coerceAtLeast(0.0),
-            startedAtMeters = startMeters + before.segmentStartedMeters,
-        )
-        return after
+    fun boundaries(
+        segments: List<WorkoutSegment>,
+        advancesActiveMs: List<Long>,
+        points: List<TrackPoint>,
+        startActiveMs: Long = 0,
+    ): List<Long> {
+        if (segments.isEmpty() || points.isEmpty()) return emptyList()
+        val scheduler = WorkoutScheduler(segments)
+        val marks = advancesActiveMs.sorted()
+        val timeline = WorkoutStart.timeline(points)
+        val startMeters = WorkoutStart.metersAt(points, startActiveMs)
+        val out = mutableListOf<Long>()
+
+        var cursor = WorkoutCursor()
+        var applied = 0
+        points.forEachIndexed { i, point ->
+            if (timeline[i] < startActiveMs) return@forEachIndexed
+            val activeMs = timeline[i] - startActiveMs
+            val meters = point.cumulativeDistanceM - startMeters
+
+            // A segment the runner ended by hand ends here; one that ran its course ends
+            // where the scheduler says, which is somewhere between this fix and the last.
+            while (applied < marks.size && marks[applied] <= activeMs && !cursor.complete) {
+                cursor = scheduler.advance(activeMs, meters, cursor)
+                out += cursor.segmentStartedActiveMs
+                applied++
+            }
+            while (true) {
+                cursor = scheduler.advanceNaturally(activeMs, meters, cursor) ?: break
+                out += cursor.segmentStartedActiveMs
+            }
+        }
+        return out
+    }
+
+    /** Distance at an active time, interpolated between the two fixes either side of it. */
+    private fun metersAt(points: List<TrackPoint>, timeline: LongArray, activeMs: Long): Double {
+        val after = timeline.indexOfFirst { it >= activeMs }
+        if (after < 0) return points.last().cumulativeDistanceM
+        if (after == 0) return points[0].cumulativeDistanceM
+        val span = timeline[after] - timeline[after - 1]
+        val before = points[after - 1].cumulativeDistanceM
+        if (span <= 0) return before
+        val fraction = (activeMs - timeline[after - 1]).toDouble() / span
+        return before + (points[after].cumulativeDistanceM - before) * fraction
     }
 }

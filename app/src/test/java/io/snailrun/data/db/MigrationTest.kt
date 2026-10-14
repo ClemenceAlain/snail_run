@@ -181,16 +181,17 @@ class MigrationTest {
     }
 
     @Test
-    fun `version 1 upgrades all the way to 5`() {
+    fun `version 1 upgrades all the way to 6`() {
         helper.createDatabase(DB_NAME, 1).close()
         helper.runMigrationsAndValidate(
             DB_NAME,
-            5,
+            6,
             true,
             SnailDatabase.MIGRATION_1_2,
             SnailDatabase.MIGRATION_2_3,
             SnailDatabase.MIGRATION_3_4,
             SnailDatabase.MIGRATION_4_5,
+            SnailDatabase.MIGRATION_5_6,
         ).close()
     }
 
@@ -225,6 +226,41 @@ class MigrationTest {
                 assertEquals(6000.0, cursor.getDouble(0), 0.0)
                 assertEquals("90000", cursor.getString(1))
                 assertEquals(0L, cursor.getLong(2))
+            }
+        db.close()
+    }
+
+    @Test
+    fun `version 5 upgrades to 6 and no run has stored boundaries`() {
+        helper.createDatabase(DB_NAME, 5).use { db ->
+            db.execSQL(
+                """
+                INSERT INTO runs (
+                    id, activityType, startedAtEpochMs, endedAtEpochMs, timeZoneId,
+                    localDate, distanceMeters, elapsedTimeMs, movingTimeMs,
+                    avgPaceSecPerKm, elevationGainM, elevationLossM, pointCount,
+                    minLat, maxLat, minLon, maxLon, title, note, source, status,
+                    distanceMilestonesAnnounced, lastTimeAnnouncedActiveMs, gpxExportedUri,
+                    smootherVersion, workoutType, workoutAdvancesActiveMs, workoutStartActiveMs
+                ) VALUES (
+                    5, 'RUN', 1700000000000, 1700000600000, 'Europe/Paris',
+                    '2023-11-14', 7000.0, 600000, 600000,
+                    200.0, 12.0, 8.0, 601,
+                    48.85, 48.87, 2.35, 2.36, NULL, NULL, 'RECORDED', 'COMPLETE',
+                    3, 0, NULL, 1, 'VmaIntervals', NULL, 0
+                )
+                """.trimIndent()
+            )
+        }
+
+        val db = helper.runMigrationsAndValidate(DB_NAME, 6, true, SnailDatabase.MIGRATION_5_6)
+
+        db.query("SELECT distanceMeters, workoutType, workoutBoundariesActiveMs FROM runs WHERE id = 5")
+            .use { cursor ->
+                assertTrue("the run did not survive the migration", cursor.moveToFirst())
+                assertEquals(7000.0, cursor.getDouble(0), 0.0)
+                assertEquals("VmaIntervals", cursor.getString(1))
+                assertTrue(cursor.isNull(2))
             }
         db.close()
     }

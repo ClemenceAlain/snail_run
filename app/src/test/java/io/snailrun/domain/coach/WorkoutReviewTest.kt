@@ -47,6 +47,37 @@ class WorkoutReviewTest {
         assertEquals(segments.map { it.label }, results.map { it.segment.label })
     }
 
+    /**
+     * The boundaries the runner was cued on win over a replay. A re-filtered track can
+     * put a 100 m jog's start ten seconds into the rep before it, and then the jog reads
+     * faster than the rep.
+     */
+    @Test
+    fun `stored boundaries are measured as they were cued`() {
+        // Cued 10 s late on every step: the replay of this track would say otherwise.
+        val cued = listOf(260_000L, 390_000L, 460_000L, 590_000L)
+        val results = WorkoutReview.of(segments, emptyList(), track(900, 4.0), boundariesActiveMs = cued)
+        assertEquals(5, results.size)
+        assertEquals(260_000L, results[0].actualMs)
+        assertEquals(1_040.0, results[0].actualMeters, 0.5)
+        assertEquals(130_000L, results[1].actualMs)
+        assertEquals(1_040.0, results[1].startedAtMeters, 0.5)
+        assertEquals(70_000L, results[2].actualMs)
+        // The last step is whatever ran until the stop.
+        assertEquals(310_000L, results[4].actualMs)
+    }
+
+    @Test
+    fun `without stored boundaries they are found on the track as counted live`() {
+        val live = track(810, 4.0)
+        // The re-filtered track credits 40 m more early on: its replay would end the
+        // warm-up ten seconds sooner than the runner was told.
+        val refiltered = live.map { it.copy(cumulativeDistanceM = it.cumulativeDistanceM + if (it.seq > 20) 40.0 else it.seq * 2.0) }
+        val results = WorkoutReview.of(segments, emptyList(), refiltered, cuePoints = live)
+        assertEquals(250_000L, results[0].actualMs)
+        assertEquals(120_000L, results[1].actualMs)
+    }
+
     @Test
     fun `a session loaded mid-run is reviewed from where it was loaded`() {
         // 100 s of running first, then the session: everything shifts by 100 s and 400 m.

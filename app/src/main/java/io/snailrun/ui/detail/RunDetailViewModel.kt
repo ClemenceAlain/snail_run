@@ -65,9 +65,9 @@ class RunDetailViewModel(
     /**
      * The session this run was guided through, against what was actually run in it.
      *
-     * Worked out here from the stored prescription and the corrected track rather than
-     * recorded as it happened, so a better position filter improves every past session's
-     * figures without anything having to be rewritten.
+     * Each step is measured on the corrected track between the boundaries it was cued
+     * on, so a better position filter improves every past session's figures while the
+     * steps stay the stretches the runner was actually told to run.
      */
     private suspend fun sessionReview(runId: Long, run: RunEntity?): List<SegmentResult> {
         if (run?.workoutType == null) return emptyList()
@@ -77,7 +77,18 @@ class RunDetailViewModel(
             ?.split(',')
             ?.mapNotNull(String::toLongOrNull)
             .orEmpty()
-        return WorkoutReview.of(segments, advances, points, run.workoutStartActiveMs)
+        val boundaries = run.workoutBoundariesActiveMs
+            ?.split(',')
+            ?.mapNotNull(String::toLongOrNull)
+        return WorkoutReview.of(
+            segments = segments,
+            advancesActiveMs = advances,
+            points = points,
+            startActiveMs = run.workoutStartActiveMs,
+            boundariesActiveMs = boundaries,
+            // Only needed without stored boundaries: the track as it was counted live.
+            cuePoints = if (boundaries == null) repository.pointsFor(runId) else points,
+        )
     }
 
     /** Drag on the graph: what did this stretch of the run actually average? */

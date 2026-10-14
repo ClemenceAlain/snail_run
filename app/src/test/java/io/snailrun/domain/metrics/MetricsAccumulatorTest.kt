@@ -20,6 +20,40 @@ class MetricsAccumulatorTest {
         assertEquals(5 * 60.0 + 33.3, metrics.averagePaceSecPerKm!!, 5.0)
     }
 
+    /**
+     * Taken from a recorded session: nine seconds without a fix mid-rep, then two fixes
+     * on which the phone reported a speed of exactly zero while the runner was doing
+     * four metres a second. Believing it lost forty metres of a 300 m rep.
+     */
+    @Test
+    fun `a zero speed reported just after a hole does not throw the step away`() {
+        val accumulator = MetricsAccumulator()
+        val fixes = Traces.steadyRun(seconds = 120, speedMps = 4.0)
+            .filterNot { (it.epochMs - Traces.START_MS) / 1000 in 61..69 }
+            .map {
+                val second = (it.epochMs - Traces.START_MS) / 1000
+                if (second == 70L || second == 71L) it.copy(speedMps = 0f) else it
+            }
+        fixes.forEach { accumulator.onFix(it) }
+
+        assertEquals(480.0, accumulator.metrics.distanceMeters, 480.0 * 0.02)
+    }
+
+    @Test
+    fun `a zero speed is still believed when the fixes are flowing`() {
+        val accumulator = MetricsAccumulator()
+        // Standing still with a wandering position: the phone says zero and is right.
+        Traces.steadyRun(seconds = 60, speedMps = 4.0).forEach { accumulator.onFix(it) }
+        val before = accumulator.metrics.distanceMeters
+        (1..60).forEach { i ->
+            val wobble = if (i % 2 == 0) 3.0 else -3.0
+            accumulator.onFix(
+                Traces.fix(240.0 + wobble, Traces.START_MS + 60_000 + i * 1000L, speedMps = 0f)
+            )
+        }
+        assertEquals(before, accumulator.metrics.distanceMeters, 3.0)
+    }
+
     @Test
     fun `time spent paused is excluded from active duration`() {
         val accumulator = MetricsAccumulator()

@@ -146,6 +146,13 @@ class RunRecorderTest {
         assertEquals("Warm up", starts.first().segment.label)
         assertEquals(listOf(1, 2, 3), starts.filter { it.segment.isRep }.map { it.segment.repIndex })
         assertTrue("the session never finished", cues.any { it is WorkoutCue.Finished })
+
+        // Every step's end, as it was cued, in order.
+        val boundaries = run.workoutBoundariesActiveMs!!.split(',').map(String::toLong)
+        assertEquals(7, boundaries.size)
+        assertEquals(boundaries.sorted(), boundaries)
+        assertTrue("warm-up ended at ${boundaries[0]}", boundaries[0] in 195_000L..205_000L)
+        assertEquals(60_000L, boundaries[1] - boundaries[0])
     }
 
     /**

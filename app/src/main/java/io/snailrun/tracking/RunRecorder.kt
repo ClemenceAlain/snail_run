@@ -115,6 +115,9 @@ class RunRecorder(
     private var workoutStartMs = 0L
     private var workoutStartM = 0.0
 
+    /** Where each step has ended so far, as cued. See [RunEntity.workoutBoundariesActiveMs]. */
+    private val workoutBoundaries = mutableListOf<Long>()
+
     private val pending = mutableListOf<TrackPoint>()
     private val recorded = mutableListOf<TrackPoint>()
     private var lastFlushMs = 0L
@@ -163,6 +166,7 @@ class RunRecorder(
         workoutCursor = WorkoutCursor()
         workoutStartMs = 0
         workoutStartM = 0.0
+        workoutBoundaries.clear()
 
         val now = clock.millis()
         val id = repository.startRun(now, source)
@@ -203,7 +207,13 @@ class RunRecorder(
         }
         workoutStartMs = run.workoutStartActiveMs
         workoutStartM = WorkoutStart.metersAt(stored, workoutStartMs)
-        workoutCursor = replayWorkout(stored, run.workoutAdvancesActiveMs)
+        val (cursor, replayed) = replayWorkout(stored, run.workoutAdvancesActiveMs)
+        workoutCursor = cursor
+        workoutBoundaries.clear()
+        workoutBoundaries += run.workoutBoundariesActiveMs
+            ?.split(',')?.mapNotNull(String::toLongOrNull)
+            ?: replayed
+        noteBoundaries()
         autoPause = if (saved.autoPauseEnabled) AutoPauseDetector() else null
         autoPauseSmoother = TrackSmoother()
         lastFixMs = null
@@ -245,7 +255,7 @@ class RunRecorder(
             is FixOutcome.Recorded -> {
                 pending += outcome.point
                 recorded += outcome.point
-                maybeCue(outcome.metrics)
+                maybeCue(outcome.metrics, id)
                 maybeAnnounce(outcome.metrics)
                 maybePersist(id)
                 publish()
@@ -409,7 +419,7 @@ class RunRecorder(
         val metrics = accumulator.metrics
         workoutCursor = session.advance(sessionMs(metrics), sessionM(metrics), workoutCursor)
         repository.recordWorkoutAdvance(id, sessionMs(metrics))
-        maybeCue(metrics)
+        maybeCue(metrics, id)
         publish()
     }
 
@@ -446,11 +456,15 @@ class RunRecorder(
 
         // Caught up over the track already run, then told where they are: the step
         // they are in is news, even when it is the warm-up they are halfway through.
-        workoutCursor = replayWorkout(recorded, null)
+        val (cursor, replayed) = replayWorkout(recorded, null)
+        workoutCursor = cursor
+        workoutBoundaries.clear()
+        workoutBoundaries += replayed
+        repository.recordWorkoutBoundaries(id, workoutBoundaries)
         if (workoutCursor.opened && !workoutCursor.complete) {
             workoutCursor = workoutCursor.copy(announcedIndex = -1)
         }
-        maybeCue(metrics)
+        maybeCue(metrics, id)
         publish()
     }
 
@@ -472,23 +486,39 @@ class RunRecorder(
      * same second as a rep change would talk over "rep three of five" — and the existing
      * twenty-second floor between announcements is exactly the rule that stops it.
      */
-    private fun maybeCue(metrics: RunMetrics) {
+    private suspend fun maybeCue(metrics: RunMetrics, id: Long) {
         val session = workout ?: return
+        val activeMs = sessionMs(metrics)
+        val meters = sessionM(metrics)
+        // A press of Next first, so its boundary goes in before any the fix brings.
+        var changed = noteBoundaries()
+        // Stepped one boundary at a time before the cue is worked out, so a gap in the
+        // fixes that carries the runner past a whole step still writes down where each
+        // step ended. [WorkoutScheduler.evaluate] then finds nothing left to step.
+        if (workoutCursor.opened) {
+            while (true) {
+                workoutCursor = session.advanceNaturally(activeMs, meters, workoutCursor) ?: break
+                workoutBoundaries += workoutCursor.segmentStartedActiveMs
+                changed = true
+            }
+        }
         val (_, cues, next) = session.evaluate(
-            activeMs = sessionMs(metrics),
-            meters = sessionM(metrics),
+            activeMs = activeMs,
+            meters = meters,
             paceSecPerKm = metrics.paceSecPerKm,
             cursor = workoutCursor,
         )
         workoutCursor = next
+        if (noteBoundaries() || changed) repository.recordWorkoutBoundaries(id, workoutBoundaries)
         if (cues.isEmpty()) return
         cursor = cursor.copy(lastAnnouncementActiveMs = metrics.activeDurationMs)
         cues.forEach { cue -> onCue?.invoke(cue) }
     }
 
     /** Runs a stored track back through the scheduler to find where the session had got to. */
-    private fun replayWorkout(points: List<TrackPoint>, advances: String?): WorkoutCursor {
-        val session = workout ?: return WorkoutCursor()
+    private fun replayWorkout(points: List<TrackPoint>, advances: String?): Pair<WorkoutCursor, List<Long>> {
+        val session = workout ?: return WorkoutCursor() to emptyList()
+        val boundaries = mutableListOf<Long>()
         val marks = advances?.split(',')?.mapNotNull(String::toLongOrNull).orEmpty().sorted()
         val timeline = WorkoutStart.timeline(points)
 
@@ -499,13 +529,33 @@ class RunRecorder(
             val activeMs = timeline[i] - workoutStartMs
             val meters = point.cumulativeDistanceM - workoutStartM
 
-            while (applied < marks.size && marks[applied] <= activeMs) {
+            while (applied < marks.size && marks[applied] <= activeMs && !replayed.complete) {
                 replayed = session.advance(activeMs, meters, replayed)
+                boundaries += replayed.segmentStartedActiveMs
                 applied++
+            }
+            if (replayed.opened) {
+                while (true) {
+                    replayed = session.advanceNaturally(activeMs, meters, replayed) ?: break
+                    boundaries += replayed.segmentStartedActiveMs
+                }
             }
             replayed = session.evaluate(activeMs, meters, null, replayed).third
         }
-        return replayed
+        return replayed to boundaries
+    }
+
+    /**
+     * Pads the boundaries out to where the cursor is, for any step that ended without
+     * passing through the loops that write them down. Returns whether any were added —
+     * which, from the live path, is also when they need saving.
+     */
+    private fun noteBoundaries(): Boolean {
+        val session = workout ?: return false
+        val expected = if (workoutCursor.complete) session.segments.size else workoutCursor.segmentIndex
+        if (workoutBoundaries.size >= expected) return false
+        while (workoutBoundaries.size < expected) workoutBoundaries += workoutCursor.segmentStartedActiveMs
+        return true
     }
 
     private fun publish() {
