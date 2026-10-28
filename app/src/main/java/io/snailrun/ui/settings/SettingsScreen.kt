@@ -212,7 +212,7 @@ fun SettingsScreen(
                     "out loud and with a buzz at every change of step.",
                 "The off-pace warning reads smoothed GPS pace, which wanders under trees " +
                     "and round corners. It waits twenty seconds and speaks at most once a " +
-                    "minute, and it is off until you ask for it.",
+                    "minute. Turn it off below if it gets in the way.",
             ),
         )
 

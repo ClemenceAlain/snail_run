@@ -26,7 +26,7 @@ import kotlinx.coroutines.flow.map
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
 data class Settings(
-    val voice: VoiceConfig = VoiceConfig(enabled = false),
+    val voice: VoiceConfig = VoiceConfig(enabled = true),
     val keepScreenOn: Boolean = true,
     /** Stops the clock when the runner stops, and starts it again when they move off. */
     val autoPauseEnabled: Boolean = false,
@@ -59,12 +59,12 @@ data class CoachSettings(
     /**
      * Whether the app comments on your pace inside a rep.
      *
-     * Off by default, and the only cue that is. The pace it reads is smoothed GPS, which
-     * wanders ten seconds a kilometre under trees and round corners, so this is the one
-     * that can start nagging — and a runner who turns off the nagging usually turns off
-     * the whole voice with it.
+     * On by default: drifting off pace mid-rep is what a runner wants to hear in time to
+     * fix it. The pace it reads is smoothed GPS, which wanders ten seconds a kilometre
+     * under trees and round corners, so it waits twenty seconds and speaks at most once a
+     * minute.
      */
-    val nudgeOffPace: Boolean = false,
+    val nudgeOffPace: Boolean = true,
     /**
      * What the runner said they had been doing before the app was watching, if they
      * answered. See [CoachBaseline] — it is history, not a setting, which is why it is
@@ -439,7 +439,7 @@ class SettingsRepository(private val context: Context) {
 
     private fun Preferences.toSettings() = Settings(
         voice = VoiceConfig(
-            enabled = this[VOICE_ENABLED] ?: false,
+            enabled = this[VOICE_ENABLED] ?: true,
             everyMeters = (this[ANNOUNCE_EVERY_METERS] ?: 1000f).toDouble(),
             everyMillis = (this[ANNOUNCE_EVERY_MINUTES] ?: 0) * 60_000L,
             speakElapsed = this[SPEAK_ELAPSED] ?: true,
@@ -458,7 +458,7 @@ class SettingsRepository(private val context: Context) {
             targetDistanceMeters = this[COACH_TARGET_DISTANCE],
             targetDateEpochDay = this[COACH_TARGET_DATE],
             dayOrders = DayOrders.decode(this[COACH_DAY_ORDERS]),
-            nudgeOffPace = this[COACH_NUDGE_OFF_PACE] ?: false,
+            nudgeOffPace = this[COACH_NUDGE_OFF_PACE] ?: true,
             baseline = CoachBaselines.decode(this[COACH_BASELINE]),
             baselineAsked = this[COACH_BASELINE_ASKED] ?: false,
             partners = PartnerCodec.decode(this[COACH_PARTNERS]),
