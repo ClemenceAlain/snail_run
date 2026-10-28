@@ -305,8 +305,13 @@ class WorkoutScheduler(
         if (!config.nudgeOffPace || band == null || paceSecPerKm == null) {
             return null to cursor.copy(offPaceSinceActiveMs = null)
         }
-        // A rep too short to fix is a rep not worth commenting on.
-        if ((segment.targetMs ?: 0) < config.nudgeMinSegmentMs) {
+        // A rep too short to fix is a rep not worth commenting on. A distance rep has no
+        // duration, so it is timed at the fastest pace asked for: 2 km takes long enough
+        // to correct, 200 m does not.
+        val segmentMs = segment.targetMs
+            ?: segment.targetM?.let { (it / 1000.0 * band.start * 1000).toLong() }
+            ?: 0
+        if (segmentMs < config.nudgeMinSegmentMs) {
             return null to cursor.copy(offPaceSinceActiveMs = null)
         }
 

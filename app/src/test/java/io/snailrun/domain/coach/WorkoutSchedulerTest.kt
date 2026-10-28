@@ -253,7 +253,17 @@ class WorkoutSchedulerTest {
 
     @Test
     fun `a pace inside the band is left alone`() {
-        val (cues, _) = run(seconds = 500, pace = 236.0, config = nudging)
+        // Each step at its own band: the warm-up and cool-down are distance steps long
+        // enough to be nudged, so one pace for the whole session would be off pace there.
+        val s = scheduler(nudging)
+        var cursor = WorkoutCursor()
+        val cues = mutableListOf<WorkoutCue>()
+        for (second in 0..800) {
+            val pace = segments[cursor.segmentIndex].paceSecPerKm!!.start
+            val (_, fired, next) = s.evaluate(second * 1000L, second * 4.0, pace, cursor)
+            cues += fired
+            cursor = next
+        }
         assertTrue(cues.filterIsInstance<WorkoutCue.OffPace>().isEmpty())
     }
 
@@ -293,6 +303,39 @@ class WorkoutSchedulerTest {
         // Capped at one a minute over three and a bit minutes of drifting.
         assertTrue("said ${fired.size} times", fired.size <= 4)
         fired.zipWithNext().forEach { (a, b) -> assertTrue(b.first - a.first >= 60) }
+    }
+
+    @Test
+    fun `drifting off pace on a distance rep is called out during the rep`() {
+        val long = WorkoutScheduler(
+            listOf(WorkoutSegment(0, "Hard", SegmentKind.Work, targetM = 2_000.0, paceSecPerKm = 255.0..255.0)),
+            WorkoutCueConfig(nudgeOffPace = true),
+        )
+        var cursor = WorkoutCursor()
+        var seen: WorkoutCue.OffPace? = null
+        // 2 km at 4 m/s lasts 500 s; look only at the first minute.
+        for (second in 0..60) {
+            val (_, cues, next) = long.evaluate(second * 1000L, second * 4.0, 300.0, cursor)
+            cues.filterIsInstance<WorkoutCue.OffPace>().firstOrNull()?.let { seen = it }
+            cursor = next
+        }
+        assertEquals(false, seen?.tooFast)
+    }
+
+    @Test
+    fun `a distance rep too short to fix is not commented on`() {
+        val short = WorkoutScheduler(
+            listOf(WorkoutSegment(0, "Hard", SegmentKind.Work, targetM = 200.0, paceSecPerKm = 234.0..234.0)),
+            WorkoutCueConfig(nudgeOffPace = true),
+        )
+        var cursor = WorkoutCursor()
+        val cues = mutableListOf<WorkoutCue>()
+        for (second in 0..49) {
+            val (_, fired, next) = short.evaluate(second * 1000L, second * 4.0, 300.0, cursor)
+            cues += fired
+            cursor = next
+        }
+        assertTrue(cues.filterIsInstance<WorkoutCue.OffPace>().isEmpty())
     }
 
     @Test
