@@ -83,27 +83,33 @@ class PartnerPlanTest {
     }
 
     @Test
-    fun `distance reps restart together, the faster one jogging the difference`() {
+    fun `distance reps are stretched for the faster one, not padded with jog`() {
         val session = Workouts.repetitions(2_000.0, herPaces, "")
         val plan = PartnerPlan.together(session, her, fast)
         val reps = session.steps.indexOfFirst { it.repeats > 1 }
 
-        val extra = plan.hisExtraMs[reps]!!
-        assertTrue("expected a gap to make up, got $extra", extra > 0)
+        val herRep = plan.her.steps[reps]
+        val hisRep = plan.his.steps[reps]
+        assertEquals(session.steps[reps].distanceM, herRep.distanceM)
+        assertTrue("expected a longer rep, got ${hisRep.distanceM}", hisRep.distanceM!! > herRep.distanceM!!)
+        // Run for her time, to the 10 m below: at most a few seconds left to jog.
+        val left = plan.hisExtraMs[reps] ?: 0L
+        assertTrue("expected a few seconds of jog to make up, got $left", left in 0L..3_000L)
         assertTrue(plan.herExtraMs.isEmpty())
-        // Her session is untouched where she is the slower one; only the jog paces are
-        // brought together.
-        assertEquals(session.steps.map { it.distanceM }, plan.her.steps.map { it.distanceM })
+        assertEquals(hisRep.distanceM!! - herRep.distanceM!!, plan.spreadM.getValue(reps), 1e-9)
+        assertTrue(reps in plan.sharedRecoveries)
+        assertTrue(plan.his.totalMeters > PartnerPlan.mirror(session, her, fast).totalMeters)
         assertRepsStartTogether(plan)
     }
 
     @Test
-    fun `when she is the faster one, her jogs absorb the gap`() {
+    fun `when she is the faster one, her reps are stretched`() {
         val slow = Partners.vdotOf(13.0)
         val session = Workouts.repetitions(2_000.0, herPaces, "")
         val plan = PartnerPlan.together(session, her, slow)
         val reps = session.steps.indexOfFirst { it.repeats > 1 }
-        assertTrue(plan.herExtraMs.getValue(reps) > 0)
+        assertTrue(plan.her.steps[reps].distanceM!! > session.steps[reps].distanceM!!)
+        assertEquals(session.steps[reps].distanceM, plan.his.steps[reps].distanceM)
         assertTrue(plan.hisExtraMs.isEmpty())
         assertRepsStartTogether(plan)
     }

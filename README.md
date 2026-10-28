@@ -579,9 +579,10 @@ each other on a shared day.
   model. Mirror mode keeps the same reps, distances and times.
 - **Time it so we regroup** (`PartnerPlan.together`) runs a clock for each of you. Easy
   running and the jogs are shared at one pace where your bands overlap, or where the faster
-  one only has to drop thirty seconds a kilometre below theirs. Reps stay as they are, at
-  your own paces. On distance reps the faster one finishes early and jogs the gap, so you
-  start the next rep together. On timed reps you start and stop together, and the sheet
+  one only has to drop thirty seconds a kilometre below theirs. Reps keep their count and
+  your own paces. On distance reps the faster one runs a longer rep, stretched to the
+  slower one's time (to the 10 m below), so the gap becomes volume instead of rest and you
+  still jog off together. On timed reps you start and stop together, and the sheet
   says how far ahead the faster one ends, so they know how far to come back. The sheet says how
   many times you regroup; it does not count minutes spent side by side. A tempo is
   run for your time, so you finish it together.

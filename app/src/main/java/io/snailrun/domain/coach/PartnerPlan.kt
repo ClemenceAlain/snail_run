@@ -1,6 +1,7 @@
 package io.snailrun.domain.coach
 
 import kotlin.math.abs
+import kotlin.math.floor
 import kotlin.math.roundToLong
 
 /**
@@ -101,9 +102,10 @@ object PartnerPlan {
      * it does not, each runs their own pace for the same time, which is how a tempo ends
      * with both of them at the same lamp post.
      *
-     * The reps themselves are never touched: same count, same distance, own pace. The
-     * faster runner finishes each one early and spends the gap jogging back to meet the
-     * other, which is the extra running a stronger partner wants anyway.
+     * The reps keep their count and their own paces. A rep set by distance is stretched
+     * for the faster runner to the slower one's time, so the gap is run as more rep, not
+     * waited out as more jog: the stronger partner gets the volume, and the two still
+     * start every jog at the same moment.
      */
     fun together(workout: Workout, herVdot: Double, hisVdot: Double): TogetherPlan {
         val mirrored = mirror(workout, herVdot, hisVdot)
@@ -163,19 +165,28 @@ object PartnerPlan {
                 return@forEachIndexed
             }
 
-            // Reps. Same count, same distance or time, own pace.
-            val herRep = durationOf(mine)
-            val hisRep = durationOf(his)
+            // Reps. Same count, own pace. A distance rep is stretched for whoever is faster
+            // to the other's time; a timed rep already is.
+            var herWork = mine
+            var hisWork = his
+            if (mine.durationMs == null && his.durationMs == null) {
+                val herMs = durationOf(mine)
+                val hisMs = durationOf(his)
+                if (hisMs in 1 until herMs) hisWork = stretched(his, herMs)
+                if (herMs in 1 until hisMs) herWork = stretched(mine, hisMs)
+            }
+            val herRep = durationOf(herWork)
+            val hisRep = durationOf(hisWork)
             // Exact, not rounded: a few seconds lost on every rep add up to a rep start
             // they no longer share. The screen rounds it; the clocks do not.
             val delta = if (herRep > 0 && hisRep > 0) herRep - hisRep else 0L
             val hasRecovery = mine.recoveryMs != null || mine.recoveryM != null
             if (!hasRecovery) {
-                herSteps += mine
-                hisSteps += his
+                herSteps += herWork
+                hisSteps += hisWork
                 gap += delta * repeats
                 apart = true
-                noteSpread(spread, index, mine, his, herRep)
+                noteSpread(spread, index, herWork, hisWork, herRep)
                 return@forEachIndexed
             }
 
@@ -184,8 +195,8 @@ object PartnerPlan {
             }
             val herJogPace = shared ?: mine.recoveryPaceSecPerKm
             val jogMs = mine.recoveryMs ?: durationAt(herJogPace, mine.recoveryM ?: 0.0)
-            var herStep = if (shared != null) mine.copy(recoveryPaceSecPerKm = shared) else mine
-            var hisStep = if (shared != null) his.copy(recoveryPaceSecPerKm = shared) else his
+            var herStep = if (shared != null) herWork.copy(recoveryPaceSecPerKm = shared) else herWork
+            var hisStep = if (shared != null) hisWork.copy(recoveryPaceSecPerKm = shared) else hisWork
             // A jog he cannot share is still one he finishes when she does, so it is
             // timed rather than measured: his metres at his pace would end elsewhere.
             if (shared == null && his.recoveryMs == null) hisStep = hisStep.copy(recoveryMs = jogMs, recoveryM = null)
@@ -203,7 +214,7 @@ object PartnerPlan {
             // Every jog closes the gap its rep opened, except after the last rep: there
             // is no jog there, so that one is carried to the next thing they can share.
             gap += delta
-            noteSpread(spread, index, mine, his, herRep)
+            noteSpread(spread, index, herWork, hisWork, herRep)
             if (shared != null) {
                 sharedRecoveries += index
                 regroups += repeats - 1
@@ -257,7 +268,8 @@ object PartnerPlan {
      * Records how far apart a step run for [ms] leaves them, and returns it.
      *
      * Read off the distances where the step has them and the paces where it does not —
-     * a step run for the same distance ends at the same place, whoever got there first.
+     * a step run for the same distance ends at the same place, whoever got there first,
+     * and a stretched rep ends the stretch further on.
      */
     private fun noteSpread(
         spread: MutableMap<Int, Double>,
@@ -266,7 +278,13 @@ object PartnerPlan {
         his: WorkoutStep,
         ms: Long,
     ): Double {
-        if (mine.durationMs == null && his.durationMs == null) return 0.0
+        if (mine.durationMs == null && his.durationMs == null) {
+            val herM = mine.distanceM ?: return 0.0
+            val hisM = his.distanceM ?: return 0.0
+            val apart = (abs(hisM - herM) / 10.0).roundToLong() * 10.0
+            if (apart > 0.0) spread[index] = apart
+            return apart
+        }
         val herM = mine.paceSecPerKm?.let { Workouts.metersAt(mid(it), ms) } ?: return 0.0
         val hisM = his.paceSecPerKm?.let { Workouts.metersAt(mid(it), ms) } ?: return 0.0
         val apart = (abs(hisM - herM) / 10.0).roundToLong() * 10.0
@@ -290,6 +308,20 @@ object PartnerPlan {
         val pace = step.paceSecPerKm
         val meters = pace?.let { Round.repMeters(Workouts.metersAt((it.start + it.endInclusive) / 2.0, ms)) }
         return step.copy(durationMs = ms, distanceM = meters ?: step.distanceM)
+    }
+
+    /**
+     * The rep lengthened to what its pace covers in [ms].
+     *
+     * To the 10 m below, never above: a stretch that overshoots would leave the slower
+     * runner waiting, and 50 m steps would round a 200 m rep's stretch away entirely.
+     * What the floor leaves is a few seconds, jogged like any other gap.
+     */
+    private fun stretched(step: WorkoutStep, ms: Long): WorkoutStep {
+        val pace = step.paceSecPerKm ?: return step
+        val distance = step.distanceM ?: return step
+        val meters = floor(Workouts.metersAt(mid(pace), ms) / 10.0) * 10.0
+        return if (meters > distance) step.copy(distanceM = meters) else step
     }
 
     /** The step, with [extraMs] more of it, in whichever dimension it is prescribed in. */
