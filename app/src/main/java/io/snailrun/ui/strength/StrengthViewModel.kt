@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import io.snailrun.AppContainer
 import io.snailrun.data.haptics.Haptics
 import io.snailrun.data.haptics.buzz
+import io.snailrun.data.sound.Beeper
+import io.snailrun.data.sound.beep
 import io.snailrun.data.voice.VoiceAnnouncer
 import io.snailrun.domain.coach.StrengthCue
 import io.snailrun.domain.coach.StrengthCursor
@@ -44,6 +46,7 @@ data class StrengthUiState(
 class StrengthViewModel(
     private val voice: VoiceAnnouncer,
     private val haptics: Haptics,
+    private val beeper: Beeper,
     private val now: () -> Long = System::currentTimeMillis,
 ) : ViewModel() {
 
@@ -112,7 +115,8 @@ class StrengthViewModel(
         val (progress, cues, next) = active.evaluate(elapsed, cursor)
         cursor = next
         cues.forEach { cue ->
-            voice.speak(cue)
+            val pips = beeper.beep(cue)
+            voice.speak(cue, leadInMs = pips)
             cue.buzz()?.let(haptics::buzz)
         }
         if (progress.complete && !_ui.value.complete) {
@@ -133,6 +137,6 @@ class StrengthViewModel(
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            StrengthViewModel(container.voiceAnnouncer, container.haptics) as T
+            StrengthViewModel(container.voiceAnnouncer, container.haptics, container.beeper) as T
     }
 }

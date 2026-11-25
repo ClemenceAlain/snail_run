@@ -15,6 +15,8 @@ import io.snailrun.data.prefs.DemoSettings
 import io.snailrun.data.prefs.SettingsRepository
 import io.snailrun.data.repo.CoachWeekStore
 import io.snailrun.data.repo.RunRepository
+import io.snailrun.data.sound.AndroidBeeper
+import io.snailrun.data.sound.Beeper
 import io.snailrun.data.voice.AndroidVoiceAnnouncer
 import io.snailrun.data.voice.ResourceSpeechVocabulary
 import io.snailrun.data.voice.VoiceAnnouncer
@@ -23,7 +25,9 @@ import io.snailrun.domain.voice.PaceSpeechFormatter
 import io.snailrun.tracking.RecordingState
 import io.snailrun.tracking.RunRecorder
 import java.time.Clock
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 
 /**
  * Hand-rolled dependency graph. One developer and one graph, so Hilt's annotation
@@ -71,6 +75,10 @@ class AppContainer(private val context: Context) {
     val basemapStore: BasemapStore by lazy { BasemapStore(context, settings) }
 
     val haptics: Haptics by lazy { AndroidHaptics(context) }
+
+    val beeper: Beeper by lazy {
+        AndroidBeeper(context, settings.settings.map { it.coach.beeps }.distinctUntilChanged())
+    }
 
     /**
      * A session chosen but not yet started.

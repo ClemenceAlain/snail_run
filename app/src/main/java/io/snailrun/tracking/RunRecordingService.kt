@@ -21,6 +21,7 @@ import io.snailrun.data.haptics.buzz
 import io.snailrun.data.prefs.DemoSettings
 import io.snailrun.data.repo.SOURCE_DEMO
 import io.snailrun.data.repo.SOURCE_RECORDED
+import io.snailrun.data.sound.beep
 import io.snailrun.ui.format.RunFormat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -134,10 +135,12 @@ class RunRecordingService : Service() {
             container.voiceAnnouncer.speak(notice)
         }
         container.runRecorder.onCue = { cue ->
-            // Both channels, always. The voice is the one that says what is happening and
-            // the buzz is the one that gets through a pocket, and which of them a given
-            // runner is relying on is not something this can know.
-            container.voiceAnnouncer.speak(cue)
+            // Every channel, always. The voice says what is happening, the buzz gets
+            // through a pocket, the pips get through a phone speaker in the wind, and
+            // which of them a given runner is relying on is not something this can know.
+            // Pips first, and the voice waits for them so it does not talk over them.
+            val pips = container.beeper.beep(cue)
+            container.voiceAnnouncer.speak(cue, leadInMs = pips)
             cue.buzz()?.let(container.haptics::buzz)
         }
         container.runRecorder.state

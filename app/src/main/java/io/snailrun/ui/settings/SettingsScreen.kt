@@ -61,6 +61,7 @@ data class SettingsActions(
     val onRemoveBasemap: () -> Unit,
     /** Distance and date together, or both null to clear the target. */
     val onCoachNudge: (Boolean) -> Unit,
+    val onCoachBeeps: (Boolean) -> Unit,
     val onSavePartner: (io.snailrun.domain.coach.Partner) -> Unit = {},
     val onRemovePartner: (Int) -> Unit = {},
     val onDemoEnabled: (Boolean) -> Unit,
@@ -209,7 +210,8 @@ fun SettingsScreen(
                 "Plans are started on the Coach tab: your VMA, your race and how many " +
                     "sessions a week. Nothing here changes the plan.",
                 "Load a session on the record screen and the app counts you through it, " +
-                    "out loud and with a buzz at every change of step.",
+                    "out loud, with high beeps and with a buzz at every change of step. " +
+                    "The beeps carry from the phone speaker when you run without earphones.",
                 "The off-pace warning reads smoothed GPS pace, which wanders under trees " +
                     "and round corners. It waits twenty seconds and speaks at most once a " +
                     "minute. Turn it off below if it gets in the way.",
@@ -221,6 +223,13 @@ fun SettingsScreen(
                 label = "Tell me when I drift off pace",
                 checked = settings.coach.nudgeOffPace,
                 onCheckedChange = actions.onCoachNudge,
+            )
+
+            Spacer(Modifier.height(Spacing.l))
+            SwitchRow(
+                label = "Beep at every change of step",
+                checked = settings.coach.beeps,
+                onCheckedChange = actions.onCoachBeeps,
             )
 
             Spacer(Modifier.height(Spacing.l))

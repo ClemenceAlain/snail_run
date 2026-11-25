@@ -556,6 +556,7 @@ class MainActivity : ComponentActivity() {
                 onChooseBasemap = { basemapPicker.launch(arrayOf("*/*")) },
                 onRemoveBasemap = { scope.launch { container.basemapStore.remove() } },
                 onCoachNudge = { scope.launch { container.settings.setCoachNudgeOffPace(it) } },
+                onCoachBeeps = { scope.launch { container.settings.setCoachBeeps(it) } },
                 onSavePartner = { scope.launch { container.settings.savePartner(it) } },
                 onRemovePartner = { scope.launch { container.settings.removePartner(it) } },
                 onDemoEnabled = { scope.launch { container.settings.setDemoEnabled(it) } },

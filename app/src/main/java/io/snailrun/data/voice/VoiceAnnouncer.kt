@@ -44,8 +44,9 @@ interface VoiceAnnouncer {
     val state: StateFlow<TtsState>
     fun speak(announcement: Announcement)
     fun speak(notice: RunNotice)
-    fun speak(cue: WorkoutCue)
-    fun speak(cue: StrengthCue)
+    /** [leadInMs] of silence first, so pips played just before are not talked over. */
+    fun speak(cue: WorkoutCue, leadInMs: Long = 0)
+    fun speak(cue: StrengthCue, leadInMs: Long = 0)
     fun speakSample()
     fun setSpeechRate(rate: Float)
     fun shutdown()
@@ -177,12 +178,12 @@ class AndroidVoiceAnnouncer(
         say(formatter.format(announcement))
     }
 
-    override fun speak(cue: WorkoutCue) {
-        say(formatter.format(cue))
+    override fun speak(cue: WorkoutCue, leadInMs: Long) {
+        say(formatter.format(cue), leadInMs)
     }
 
-    override fun speak(cue: StrengthCue) {
-        say(formatter.format(cue))
+    override fun speak(cue: StrengthCue, leadInMs: Long) {
+        say(formatter.format(cue), leadInMs)
     }
 
     override fun speak(notice: RunNotice) {
@@ -197,7 +198,7 @@ class AndroidVoiceAnnouncer(
         runCatching { tts?.setSpeechRate(rate) }
     }
 
-    private fun say(text: String) {
+    private fun say(text: String, leadInMs: Long = 0) {
         val engine = tts ?: return
         if (_state.value !is TtsState.Ready) return
 
@@ -209,11 +210,12 @@ class AndroidVoiceAnnouncer(
 
         engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) = Unit
-            override fun onDone(utteranceId: String?) = abandonFocus()
+            // The lead-in silence ending is not the announcement ending.
+            override fun onDone(utteranceId: String?) = abandonFocusAfter(utteranceId)
             @Deprecated("Required by the base class", ReplaceWith(""))
-            override fun onError(utteranceId: String?) = abandonFocus()
-            override fun onError(utteranceId: String?, errorCode: Int) = abandonFocus()
-            override fun onStop(utteranceId: String?, interrupted: Boolean) = abandonFocus()
+            override fun onError(utteranceId: String?) = abandonFocusAfter(utteranceId)
+            override fun onError(utteranceId: String?, errorCode: Int) = abandonFocusAfter(utteranceId)
+            override fun onStop(utteranceId: String?, interrupted: Boolean) = abandonFocusAfter(utteranceId)
         })
 
         val params = Bundle().apply {
@@ -224,8 +226,18 @@ class AndroidVoiceAnnouncer(
         // One announcement, one utterance: several queued utterances would mean several
         // ducking cycles and audible thrash.
         runCatching {
-            engine.speak(text, TextToSpeech.QUEUE_FLUSH, params, UTTERANCE_ID)
+            val mode = if (leadInMs > 0) {
+                engine.playSilentUtterance(leadInMs, TextToSpeech.QUEUE_FLUSH, LEAD_IN_ID)
+                TextToSpeech.QUEUE_ADD
+            } else {
+                TextToSpeech.QUEUE_FLUSH
+            }
+            engine.speak(text, mode, params, UTTERANCE_ID)
         }.onFailure { abandonFocus() }
+    }
+
+    private fun abandonFocusAfter(utteranceId: String?) {
+        if (utteranceId != LEAD_IN_ID) abandonFocus()
     }
 
     private fun abandonFocus() {
@@ -243,6 +255,7 @@ class AndroidVoiceAnnouncer(
 
     private companion object {
         const val UTTERANCE_ID = "snail-run-announcement"
+        const val LEAD_IN_ID = "snail-run-lead-in"
 
         val SAMPLE = Announcement(
             milestone = io.snailrun.domain.voice.Milestone.Distance(1000.0),

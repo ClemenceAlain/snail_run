@@ -66,6 +66,13 @@ data class CoachSettings(
      */
     val nudgeOffPace: Boolean = true,
     /**
+     * High-pitched pips at every change of step, before the voice says it.
+     *
+     * On by default: without earphones the phone speaker loses a spoken "jog" to wind and
+     * traffic, and a 2–3 kHz pip still carries.
+     */
+    val beeps: Boolean = true,
+    /**
      * What the runner said they had been doing before the app was watching, if they
      * answered. See [CoachBaseline] — it is history, not a setting, which is why it is
      * in the backup along with the runs.
@@ -174,6 +181,7 @@ fun CoachSettings.toBackupRows(): Map<String, String> = buildMap {
     targetDateEpochDay?.let { put("target_date", it.toString()) }
     DayOrders.encode(dayOrders).takeIf { it.isNotEmpty() }?.let { put("day_orders", it) }
     put("nudge_off_pace", nudgeOffPace.toString())
+    put("beeps", beeps.toString())
     baseline?.let { put("baseline", CoachBaselines.encode(it)) }
     put("baseline_asked", baselineAsked.toString())
     PartnerCodec.encode(partners).takeIf { it.isNotEmpty() }?.let { put("partners", it) }
@@ -187,6 +195,9 @@ fun coachSettingsFrom(rows: Map<String, String>): CoachSettings = CoachSettings(
     targetDateEpochDay = rows["target_date"]?.toLongOrNull(),
     dayOrders = DayOrders.decode(rows["day_orders"]),
     nudgeOffPace = rows["nudge_off_pace"].toBoolean(),
+    // Absent from backups made before the setting existed: those runners had no say, so
+    // they get the default rather than a silent "off".
+    beeps = rows["beeps"]?.toBooleanStrictOrNull() ?: true,
     baseline = CoachBaselines.decode(rows["baseline"]),
     baselineAsked = rows["baseline_asked"].toBoolean(),
     partners = PartnerCodec.decode(rows["partners"]),
@@ -400,6 +411,8 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setCoachNudgeOffPace(value: Boolean) = edit { it[COACH_NUDGE_OFF_PACE] = value }
 
+    suspend fun setCoachBeeps(value: Boolean) = edit { it[COACH_BEEPS] = value }
+
     /**
      * Puts the coach back as a restored backup found it.
      *
@@ -426,6 +439,7 @@ class SettingsRepository(private val context: Context) {
             ?.let { prefs[COACH_DAY_ORDERS] = it }
         coach.baseline?.let { prefs[COACH_BASELINE] = CoachBaselines.encode(it) }
         prefs[COACH_NUDGE_OFF_PACE] = coach.nudgeOffPace
+        prefs[COACH_BEEPS] = coach.beeps
         prefs[COACH_BASELINE_ASKED] = coach.baselineAsked
     }
 
@@ -459,6 +473,7 @@ class SettingsRepository(private val context: Context) {
             targetDateEpochDay = this[COACH_TARGET_DATE],
             dayOrders = DayOrders.decode(this[COACH_DAY_ORDERS]),
             nudgeOffPace = this[COACH_NUDGE_OFF_PACE] ?: true,
+            beeps = this[COACH_BEEPS] ?: true,
             baseline = CoachBaselines.decode(this[COACH_BASELINE]),
             baselineAsked = this[COACH_BASELINE_ASKED] ?: false,
             partners = PartnerCodec.decode(this[COACH_PARTNERS]),
@@ -485,6 +500,7 @@ class SettingsRepository(private val context: Context) {
         val COACH_TARGET_DATE = longPreferencesKey("coach_target_date")
         val COACH_DAY_ORDERS = stringPreferencesKey("coach_day_orders")
         val COACH_NUDGE_OFF_PACE = booleanPreferencesKey("coach_nudge_off_pace")
+        val COACH_BEEPS = booleanPreferencesKey("coach_beeps")
         val COACH_BASELINE = stringPreferencesKey("coach_baseline")
         val COACH_BASELINE_ASKED = booleanPreferencesKey("coach_baseline_asked")
         val COACH_PARTNERS = stringPreferencesKey("coach_partners")

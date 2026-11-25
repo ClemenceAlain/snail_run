@@ -51,4 +51,16 @@ class PartnerCodecTest {
         assertTrue(coach.partners.isEmpty())
         assertTrue(coach.pairings.isEmpty())
     }
+
+    @Test
+    fun `a backup from before beeps restores with them on`() {
+        val old = mapOf("nudge_off_pace" to "true", "baseline_asked" to "false")
+        assertTrue(coachSettingsFrom(old).beeps)
+    }
+
+    @Test
+    fun `beeps turned off survive a backup`() {
+        val coach = CoachSettings(beeps = false)
+        assertEquals(coach, coachSettingsFrom(coach.toBackupRows()))
+    }
 }
