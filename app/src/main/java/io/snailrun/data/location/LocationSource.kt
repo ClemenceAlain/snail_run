@@ -4,10 +4,13 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.location.Location
-import android.location.LocationListener
 import android.location.LocationManager
 import android.os.SystemClock
 import androidx.annotation.RequiresPermission
+import androidx.core.location.LocationCompat
+import androidx.core.location.LocationListenerCompat
+import androidx.core.location.LocationManagerCompat
+import androidx.core.location.LocationRequestCompat
 import io.snailrun.domain.model.RawFix
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -39,12 +42,13 @@ class PlatformLocationSource(context: Context) : LocationSource {
     override fun fixes(intervalMs: Long): Flow<RawFix> = callbackFlow {
         val manager = manager ?: run { close(); return@callbackFlow }
 
-        val listener = LocationListener { location -> trySend(location.toRawFix()) }
+        val listener = LocationListenerCompat { location -> trySend(location.toRawFix()) }
 
-        // minSdk 31, so the modern builder and the Executor overload are available
-        // unconditionally: no LocationRequestCompat, no reflection.
-        val request = android.location.LocationRequest.Builder(intervalMs)
-            .setQuality(android.location.LocationRequest.QUALITY_HIGH_ACCURACY)
+        // The compat request, because the app runs on Android 9: from Android 12 it
+        // becomes the platform request below; before, the legacy time-and-distance call.
+        // The interval and the zero distance carry over either way, which is what matters.
+        val request = LocationRequestCompat.Builder(intervalMs)
+            .setQuality(LocationRequestCompat.QUALITY_HIGH_ACCURACY)
             .setMinUpdateIntervalMillis(intervalMs)
             // Never let the framework gate on distance: auto-pause and the live pace
             // both need to see the fixes that show the runner has stopped.
@@ -53,20 +57,21 @@ class PlatformLocationSource(context: Context) : LocationSource {
             .setMaxUpdateDelayMillis(0L)
             .build()
 
-        manager.requestLocationUpdates(
+        LocationManagerCompat.requestLocationUpdates(
+            manager,
             LocationManager.GPS_PROVIDER,
             request,
             Runnable::run,
             listener,
         )
 
-        awaitClose { manager.removeUpdates(listener) }
+        awaitClose { LocationManagerCompat.removeUpdates(manager, listener) }
     }
 }
 
 /**
  * Age is derived from `elapsedRealtimeNanos` rather than
- * `getElapsedRealtimeAgeMillis()`, which needs API 33 while this app supports 31.
+ * `getElapsedRealtimeAgeMillis()`, which needs API 33 while this app supports 28.
  * Same number, monotonic clock, no version branch.
  */
 fun Location.toRawFix(nowNanos: Long = SystemClock.elapsedRealtimeNanos()): RawFix = RawFix(
@@ -79,5 +84,5 @@ fun Location.toRawFix(nowNanos: Long = SystemClock.elapsedRealtimeNanos()): RawF
     speedMps = if (hasSpeed()) speed else null,
     speedAccuracyMps = if (hasSpeedAccuracy()) speedAccuracyMetersPerSecond else null,
     ageMs = ((nowNanos - elapsedRealtimeNanos) / 1_000_000L).coerceAtLeast(0),
-    isMock = isMock,
+    isMock = LocationCompat.isMock(this),
 )

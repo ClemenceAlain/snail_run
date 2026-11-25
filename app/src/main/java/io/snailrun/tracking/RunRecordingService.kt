@@ -10,6 +10,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
@@ -60,7 +61,12 @@ class RunRecordingService : Service() {
             this,
             NOTIFICATION_ID,
             buildNotification(getString(R.string.notification_starting)),
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION,
+            // Service types start at Android 10; Android 9 has none to declare.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            } else {
+                0
+            },
         )
 
         when (intent?.action) {

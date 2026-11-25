@@ -171,8 +171,9 @@ class DatabaseBackup(
      * exclusive access, so a run can keep recording through it.
      *
      * Falling back rather than checking a version string: the statement arrived in SQLite
-     * 3.27 and every API 31 device ships 3.32, but the honest test of whether a database
-     * understands a statement is to hand it the statement.
+     * 3.27 and Android 9 ships 3.22, so on Android 9 and 10 the fallback copy is the
+     * path taken. The honest test of whether a database understands a statement is
+     * still to hand it the statement.
      */
     private fun snapshot(destination: File) {
         // VACUUM INTO refuses to overwrite, so the path must be free first.

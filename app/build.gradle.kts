@@ -18,7 +18,7 @@ android {
 
     defaultConfig {
         applicationId = "io.snailrun"
-        minSdk = 31
+        minSdk = 28
         targetSdk = 35
         // Overridable from CI so a tag drives the version: -PversionName=1.2.0 -PversionCode=7
         versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1

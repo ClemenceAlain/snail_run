@@ -255,7 +255,7 @@ behind a question mark.
 
 ## Requirements
 
-- Android 12 (API 31) or newer. Built and tested against API 35.
+- Android 9 (API 28) or newer. Built and tested against API 35.
 - No Google Play Services. The app uses the platform `LocationManager` directly, so it
   works on a de-Googled ROM.
 - A text-to-speech engine for the voice feature, with an **English** voice. A LineageOS
